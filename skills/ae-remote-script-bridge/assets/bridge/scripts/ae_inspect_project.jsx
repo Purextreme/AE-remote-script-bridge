@@ -1,5 +1,8 @@
 (function () {
-    var logsDir = $.global.AE_BRIDGE_LOGS_DIR || "D:/YANQ/AI_Explorer/AE_remote_script_bridge/logs";
+    var logsDir = $.global.AE_BRIDGE_LOGS_DIR;
+    if (!logsDir) {
+        throw new Error("AE_BRIDGE_LOGS_DIR is missing. Run this script through the AE bridge.");
+    }
     var outputFile = new File(logsDir + "/project_structure.json");
 
     function escapeJson(value) {

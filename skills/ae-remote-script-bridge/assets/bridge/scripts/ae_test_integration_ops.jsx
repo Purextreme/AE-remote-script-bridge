@@ -1,5 +1,8 @@
 (function () {
-    var rootPath = $.global.AE_BRIDGE_ROOT || "D:/YANQ/AI_Explorer/AE_remote_script_bridge";
+    var rootPath = $.global.AE_BRIDGE_ROOT;
+    if (!rootPath) {
+        throw new Error("AE_BRIDGE_ROOT is missing. Run this script through the AE bridge.");
+    }
     var logsDir = $.global.AE_BRIDGE_LOGS_DIR || (rootPath + "/logs");
     var tempDir = $.global.AE_BRIDGE_TEMP_DIR || (rootPath + "/temp");
     var reportFile = new File(logsDir + "/integration_test_result.json");

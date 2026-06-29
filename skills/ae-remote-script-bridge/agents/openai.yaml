@@ -1,4 +1,4 @@
 interface:
   display_name: "AE Remote Script Bridge"
-  short_description: "Operate After Effects through JSX bridge"
+  short_description: "Operate AE with JSX bridge and scripting references"
   default_prompt: "Use $ae-remote-script-bridge to inspect and modify my open After Effects project."

@@ -1,11 +1,13 @@
 __pycache__/
 *.py[cod]
 
-logs/*
-!logs/.gitkeep
+skills/ae-remote-script-bridge/assets/bridge/config.json
 
-temp/*
-!temp/.gitkeep
+skills/ae-remote-script-bridge/assets/bridge/logs/*
+!skills/ae-remote-script-bridge/assets/bridge/logs/.gitkeep
+
+skills/ae-remote-script-bridge/assets/bridge/temp/*
+!skills/ae-remote-script-bridge/assets/bridge/temp/.gitkeep
 
 *.aep
 *.avi
