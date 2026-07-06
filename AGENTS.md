@@ -18,11 +18,11 @@ There is no package build step for this repository. Validate changes by inspecti
 
 ```bat
 cd skills\ae-remote-script-bridge\assets\bridge
-python client\send_to_ae.py scripts\ae_test_create_comp.jsx
-python client\send_to_ae.py scripts\ae_test_modify_active_comp.jsx
-python client\send_to_ae.py scripts\ae_test_error.jsx
-python client\send_to_ae.py scripts\ae_test_integration_ops.jsx
-python client\send_to_ae.py scripts\ae_inspect_project.jsx
+python client\send_to_ae.py --no-protect scripts\ae_test_create_comp.jsx
+python client\send_to_ae.py --no-protect scripts\ae_test_modify_active_comp.jsx
+python client\send_to_ae.py --no-protect scripts\ae_test_error.jsx
+python client\send_to_ae.py --no-protect scripts\ae_test_integration_ops.jsx
+python client\send_to_ae.py --no-protect scripts\ae_inspect_project.jsx
 ```
 
 Use `--afterfx`, `AFTERFX_COM_PATH`, or a local `config.json` when automatic `AfterFX.com` discovery is not enough.
@@ -35,7 +35,7 @@ Name task cards and scripts with lowercase descriptive names, using underscores 
 
 ## Testing Guidelines
 
-No standalone test framework is configured. Treat the bridge scripts under `assets/bridge/scripts/` as integration checks that require Windows and After Effects. After meaningful AE operations, run `ae_inspect_project.jsx` and compare concrete output in `logs/project_structure.json`.
+No standalone test framework is configured. Treat the bridge scripts under `assets/bridge/scripts/` as integration checks that require Windows and After Effects. After meaningful AE operations, run `ae_inspect_project.jsx` and compare concrete output in `logs/project_structure.json`. For key visual changes, use `--capture-frame` and choose the inspected comp time deliberately. For multi-command mutating work, reuse one `--operation-id` for the current user request.
 
 ## Commit & Pull Request Guidelines
 
@@ -45,4 +45,4 @@ Pull requests should include a concise summary, changed paths, verification perf
 
 ## Security & Configuration Tips
 
-Do not commit local `config.json`, generated logs, temp files, or machine-specific `AfterFX.com` paths. Use `config.example.json` as the template for local setup.
+Do not commit local `config.json`, generated logs, temp files, `agent backups/` folders, backup `.aep` files, or machine-specific `AfterFX.com` paths. Use `config.example.json` as the template for local setup.

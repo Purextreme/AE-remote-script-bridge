@@ -10,6 +10,9 @@
 
 ## Project Safety
 
+- Run mutating scripts through the bridge's default protection. It requires a saved, clean project and creates a rolling `.aep` backup next to the project file before executing the target JSX.
+- Reuse one `--operation-id` across all bridge calls in the same user request. The first call backs up the project; later calls with the same id reuse that backup and may run after the project becomes dirty.
+- Use `--no-protect` only for read-only checks, disposable bridge tests, or explicitly approved recovery workflows.
 - Wrap project edits with `app.beginUndoGroup("name")` and `app.endUndoGroup()`.
 - Use `try/finally` so `endUndoGroup()` runs after failures.
 - Before active comp work, check `app.project.activeItem instanceof CompItem`.
@@ -35,10 +38,10 @@
 - Avoid `alert()` in normal workflows.
 - Prefer `$.writeln()` or writing a small report file.
 - With this bridge, prefer `$.global.AE_BRIDGE_LOGS_DIR` for reports.
+- After key visual edits or a long batch of changes, use `--capture-frame` so the agent can inspect a rendered PNG. Choose `current`, `middle`, `two-thirds`, `end`, or an exact `--capture-time` based on the comp and task. Avoid capture for routine read-only checks because AE may mark the project dirty after temporary Render Queue use.
 
 ## Expressions
 
 - Scripting API and expression runtime are separate.
 - `property.expression = "..."` is scripting code assigning an expression string; it does not mean expression APIs are available to JSX.
 - Check `property.canSetExpression` before setting expressions.
-

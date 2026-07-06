@@ -4,6 +4,10 @@
 
 For destructive or multi-step edits, run `scripts/ae_inspect_project.jsx` before and after the change. Compare `logs/project_structure.json` to confirm the operation changed the intended comp, folder, layer, effect, or keyframe state.
 
+Use the bridge's default protection for mutating scripts. It refuses unsaved or dirty projects and creates a rolling `.aep` backup in an `agent backups/` folder next to the project file before running the target script. For a multi-command user request, reuse one `--operation-id` so only the first bridge call creates the backup and later calls can continue after earlier changes make the project dirty. Use `--no-protect` for read-only inspection scripts such as `ae_inspect_project.jsx`.
+
+For key visual edits or after a batch of visual operations, add `--capture-frame`. Choose the inspected time intentionally: `--capture-time-mode middle` or `--capture-time-mode two-thirds` often gives better coverage for animated comps than the first frame. Do not use frame capture as a routine read-only check: AE can mark the project dirty after temporary Render Queue operations even when the queue content is restored.
+
 ## Version and Documentation Checks
 
 Use simple local JSX for common operations covered below. For complex operations, version-sensitive APIs, effect/property match names, text/font APIs, 3D/model APIs, render/output modules, or repeated errors, check the scripting docs first:

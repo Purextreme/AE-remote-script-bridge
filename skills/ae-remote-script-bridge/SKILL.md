@@ -66,6 +66,17 @@ or with an explicit AE path:
 python client\send_to_ae.py --afterfx "C:\path\to\AfterFX.com" scripts\your_script.jsx
 ```
 
+By default, `send_to_ae.py` protects the user's project before running a target script:
+
+- AE must have an open project.
+- The project must already be saved to an `.aep` file.
+- The project must not have unsaved changes.
+- The bridge copies the current `.aep` into an `agent backups/` folder next to the project file with an `agent backup` prefix and keeps the latest 10 backups.
+
+If the project is unsaved or dirty, the bridge writes an `[AE ERROR]` result for the agent and shows an AE alert for the user before the target JSX runs. Use `--no-protect` only for read-only checks, disposable bridge tests, or explicitly approved recovery workflows.
+
+For multi-command agent work, generate one stable `--operation-id` for the user request and pass it to every mutating bridge call in that request. The first call performs the saved/clean check and creates the backup; later calls with the same `--operation-id` reuse that backup and do not block on dirty state created by earlier calls. Use a new `--operation-id` for the next user request.
+
 The bridge injects these ExtendScript globals:
 
 ```javascript
@@ -79,15 +90,25 @@ Use them for reports and temporary outputs instead of hardcoded paths.
 
 Treat `[AE OK]` as proof that JSX finished without throwing. For meaningful changes, verify AE state from inside AE.
 
+For key visual operations or after a batch of changes, request a frame capture in the same command:
+
+```bat
+python client\send_to_ae.py scripts\your_script.jsx --capture-frame --capture-time-mode two-thirds
+```
+
+Use `--capture-time-mode current`, `middle`, `two-thirds`, or `end`, or pass `--capture-time <seconds>`. For animated comps, choose a middle or middle-late frame when it better represents the result. The bridge captures the active composition through an isolated Render Queue item, restores existing queued items, then writes a resized preview PNG with a long edge of at most 1500 px. AE may still mark the project dirty because Render Queue was touched; the capture report includes `dirtyChangedByCapture` and the client prints a warning when this happens.
+
 ## Verification Workflow
 
 After any meaningful AE operation, run:
 
 ```bat
-python client\send_to_ae.py scripts\ae_inspect_project.jsx
+python client\send_to_ae.py --no-protect scripts\ae_inspect_project.jsx
 ```
 
 Then read `logs/project_structure.json` and compare concrete facts: comp names, dimensions, duration, layer names, text, source names, effect counts, keyframe counts, output files, and saved project paths.
+
+When visual appearance matters, also capture a frame after the operation or batch. Do not capture after every tiny change. Prefer `--capture-time-mode middle` or `--capture-time-mode two-thirds` for animated comps unless the user's request points to a specific time.
 
 For version-sensitive work, write a tiny probe script that reports `app.version`, `app.buildName`, `app.buildNumber`, `app.isoLanguage`, and feature availability checks.
 
@@ -111,9 +132,9 @@ Read `references/ae-agent/AE_AGENT_RULES.md` for the full rule list before writi
 Use these from the bridge root:
 
 ```bat
-python client\send_to_ae.py scripts\ae_test_create_comp.jsx
-python client\send_to_ae.py scripts\ae_test_modify_active_comp.jsx
-python client\send_to_ae.py scripts\ae_test_error.jsx
-python client\send_to_ae.py scripts\ae_test_integration_ops.jsx
-python client\send_to_ae.py scripts\ae_inspect_project.jsx
+python client\send_to_ae.py --no-protect scripts\ae_test_create_comp.jsx
+python client\send_to_ae.py --no-protect scripts\ae_test_modify_active_comp.jsx
+python client\send_to_ae.py --no-protect scripts\ae_test_error.jsx
+python client\send_to_ae.py --no-protect scripts\ae_test_integration_ops.jsx
+python client\send_to_ae.py --no-protect scripts\ae_inspect_project.jsx
 ```

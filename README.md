@@ -21,3 +21,28 @@ C:\Users\<user>\.codex\skills\ae-remote-script-bridge
 - 可复用的 JSX 模板
 
 bridge 不需要硬编码 AE 路径。它会按顺序从 `--afterfx`、`AFTERFX_COM_PATH`、可选的本地 `config.json`，或 `C:\Program Files\Adobe` 下的自动发现结果解析 `AfterFX.com`。
+
+## 安全保护
+
+`client\send_to_ae.py` 默认会在执行目标 JSX 前做保护检查：
+
+- AE 必须打开工程。
+- 当前工程必须已经保存为 `.aep`。
+- 当前工程不能有未保存改动。
+- 检查通过后，bridge 会在当前 `.aep` 同目录下创建 `agent backups\`，把工程复制进去，文件名前缀为 `agent backup`，并滚动保留最新 10 个备份。
+
+如果工程未保存或存在未保存改动，bridge 会先把失败结果返回给 agent，再在 AE 中弹窗提示用户；目标 JSX 不会执行。只读检查或一次性测试可以显式加 `--no-protect`。
+
+同一轮 agent 操作中如果需要连续执行多条 JSX 命令，应复用同一个 `--operation-id`。第一次命令会触发保护检查和备份；后续同 id 命令会复用这次备份，不会因为前面命令把工程变 dirty 而再次拦截。下一轮用户任务应使用新的 `--operation-id`。
+
+## 画面检查
+
+关键视觉操作或一批操作完成后，可以让 bridge 返回当前合成的一帧图片：
+
+```bat
+python client\send_to_ae.py scripts\your_script.jsx --capture-frame --capture-time-mode two-thirds
+```
+
+截图通过隔离 Render Queue 实现：临时禁用已有待渲染项，只渲染截图项，随后删除截图项并恢复原队列状态。输出图片会规范成 PNG 预览图，默认长边不超过 `1500px`。注意，AE 仍可能因为临时 Render Queue 操作把工程标记为有未保存改动；bridge 会在截图报告中标记 `dirtyChangedByCapture` 并输出 warning。
+
+对于有动画的合成，agent 应根据任务选择检查时间帧：可以使用 `current`、`middle`、`two-thirds`、`end`，或通过 `--capture-time <seconds>` 指定具体时间。通常中部或中后部帧比第一帧更能暴露动画结果。

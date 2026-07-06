@@ -9,6 +9,9 @@ skills/ae-remote-script-bridge/assets/bridge/logs/*
 skills/ae-remote-script-bridge/assets/bridge/temp/*
 !skills/ae-remote-script-bridge/assets/bridge/temp/.gitkeep
 
+agent backups/
+**/agent backups/
+
 *.aep
 *.avi
 *.mp4
