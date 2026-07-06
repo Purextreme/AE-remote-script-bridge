@@ -1,12 +1,11 @@
 # AE Agent Reference Index
 
-Small reference layer for agents writing After Effects JSX scripts.
+Small reference layer for agents writing After Effects JSX scripts. Core workflow and scripting rules live in `SKILL.md`.
 
 ## Read First
 
 | Need | File |
 |---|---|
-| Core scripting rules | `AE_AGENT_RULES.md` |
 | Frequent APIs | `AE_API_TABLE.md` |
 | Stable property/effect identifiers | `AE_MATCHNAME_TABLE.md` |
 | Common failure modes | `AE_PITFALLS.md` |

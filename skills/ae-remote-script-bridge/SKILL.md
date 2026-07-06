@@ -9,16 +9,14 @@ Use this skill for After Effects scripting with ExtendScript JSX, not the C++ SD
 
 ## Reference Workflow
 
-Start with `references/ae-agent/AE_INDEX.md`.
+This `SKILL.md` is the single workflow guide. For APIs, match names, pitfalls, or task-specific examples, start with `references/ae-agent/AE_INDEX.md`.
 
 Read only the needed reference file:
 
-- Core JSX rules: `references/ae-agent/AE_AGENT_RULES.md`
 - Frequent scripting APIs: `references/ae-agent/AE_API_TABLE.md`
 - Common match names: `references/ae-agent/AE_MATCHNAME_TABLE.md`
 - Common failure modes: `references/ae-agent/AE_PITFALLS.md`
 - Task-specific cards: `references/ae-agent/tasks/`
-- Older bridge operation examples: `references/ae-operations.md`
 
 Use bundled templates from `assets/templates/` when they fit the task:
 
@@ -110,22 +108,94 @@ Then read `logs/project_structure.json` and compare concrete facts: comp names, 
 
 When visual appearance matters, also capture a frame after the operation or batch. Do not capture after every tiny change. Prefer `--capture-time-mode middle` or `--capture-time-mode two-thirds` for animated comps unless the user's request points to a specific time.
 
-For version-sensitive work, write a tiny probe script that reports `app.version`, `app.buildName`, `app.buildNumber`, `app.isoLanguage`, and feature availability checks.
+For version-sensitive work, write a tiny probe script that reports `app.version`, `app.buildName`, `app.buildNumber`, `app.isoLanguage`, and feature availability checks:
+
+```javascript
+(function () {
+    var logsDir = $.global.AE_BRIDGE_LOGS_DIR;
+    var reportFile = new File(logsDir + "/ae_version_probe.json");
+
+    reportFile.encoding = "UTF-8";
+    reportFile.open("w");
+    reportFile.write("{");
+    reportFile.write('"version":"' + app.version + '"');
+    reportFile.write(',"buildName":"' + app.buildName + '"');
+    reportFile.write(',"buildNumber":' + app.buildNumber);
+    reportFile.write(',"isoLanguage":"' + app.isoLanguage + '"');
+    reportFile.write(',"hasFontsObject":' + (typeof app.fonts !== "undefined" ? "true" : "false"));
+    reportFile.write("}");
+    reportFile.close();
+})();
+```
+
+Prefer a task-specific report file when the result cannot be fully captured by `ae_inspect_project.jsx`:
+
+```javascript
+(function () {
+    var logsDir = $.global.AE_BRIDGE_LOGS_DIR;
+    var reportFile = new File(logsDir + "/task_result.json");
+
+    app.beginUndoGroup("Task Name");
+    try {
+        var comp = app.project.activeItem;
+        if (!(comp instanceof CompItem)) {
+            throw new Error("Active item is not a composition.");
+        }
+
+        // Make the AE changes here.
+
+        reportFile.encoding = "UTF-8";
+        reportFile.open("w");
+        reportFile.write('{"ok":true}');
+        reportFile.close();
+    } finally {
+        app.endUndoGroup();
+    }
+})();
+```
 
 ## JSX Authoring Rules
 
-Use ExtendScript-compatible JavaScript:
+Write After Effects scripts as ExtendScript-compatible `.jsx`:
 
-- prefer `var`
-- avoid `let`, `const`, arrow functions, template literals, destructuring, classes, `Promise`, `async`, `await`, `fetch`, DOM APIs, and browser globals
-- wrap project edits with `app.beginUndoGroup()` / `app.endUndoGroup()`
-- check `app.project.activeItem instanceof CompItem` before comp work
-- check `comp.selectedLayers.length` before selected-layer work
-- prefer verified match names such as `ADBE Effect Parade`, `ADBE Transform Group`, `ADBE Position`, `ADBE Opacity`
-- do not invent match names; mark uncertain areas `needs_verify`
-- avoid `alert()` in normal workflows; write reports or use `$.writeln()`
+- Prefer `var`.
+- Do not use `let`, `const`, arrow functions, classes, template literals, destructuring, `Promise`, `async`, `await`, `fetch`, `XMLHttpRequest`, browser DOM APIs, `window`, or `document`.
+- Use plain `for` loops; avoid relying on modern Array methods.
+- Use ExtendScript `File` and `Folder` for filesystem work.
 
-Read `references/ae-agent/AE_AGENT_RULES.md` for the full rule list before writing non-trivial JSX.
+Project safety:
+
+- Run mutating scripts through the bridge's default protection.
+- Reuse one `--operation-id` across all bridge calls in the same user request.
+- Use `--no-protect` only for read-only checks, disposable bridge tests, or explicitly approved recovery workflows.
+- Wrap project edits with `app.beginUndoGroup("name")` and `app.endUndoGroup()`.
+- Use `try/finally` so `endUndoGroup()` runs after failures.
+- Before active comp work, check `app.project.activeItem instanceof CompItem`.
+- Before selected-layer work, check `comp.selectedLayers.length`.
+- Remember AE collection indexes are often 1-based: `app.project.item(1)`, `comp.layer(1)`, `property.keyTime(1)`.
+- Remember `comp.selectedLayers` is a 0-based JavaScript array.
+
+Property access:
+
+- Prefer stable `matchName` values where known, for example `ADBE Transform Group`, `ADBE Position`, `ADBE Opacity`, `ADBE Effect Parade`.
+- Do not invent match names. If a matchName is not verified, mark it `needs_verify`.
+- Display names can be localized; use them only when no verified matchName is known or when the API requires a template/display string.
+- Always null-check property lookups before using returned objects.
+- Adding properties to indexed groups can invalidate existing references. Reacquire properties after `addProperty()` when continuing work.
+
+Text:
+
+- `Source Text` is a `TextDocument` property.
+- Read it with `.value`, edit the `TextDocument`, then write it back with `.setValue(textDoc)`.
+
+Output and expressions:
+
+- Avoid `alert()` in normal workflows.
+- Prefer `$.writeln()` or writing a small report file.
+- With this bridge, prefer `$.global.AE_BRIDGE_LOGS_DIR` for reports.
+- After key visual edits or a long batch of changes, use `--capture-frame` so the agent can inspect a rendered PNG. Avoid capture for routine read-only checks because AE may mark the project dirty after temporary Render Queue use.
+- Scripting API and expression runtime are separate. `property.expression = "..."` assigns an expression string; it does not mean expression APIs are available to JSX.
+- Check `property.canSetExpression` before setting expressions.
 
 ## Built-In Bridge Checks
 
