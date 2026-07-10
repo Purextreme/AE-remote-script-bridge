@@ -9,14 +9,7 @@ Use this skill for After Effects scripting with ExtendScript JSX, not the C++ SD
 
 ## Reference Workflow
 
-This `SKILL.md` is the single workflow guide. For APIs, match names, pitfalls, or task-specific examples, start with `references/ae-agent/AE_INDEX.md`.
-
-Read only the needed reference file:
-
-- Frequent scripting APIs: `references/ae-agent/AE_API_TABLE.md`
-- Common match names: `references/ae-agent/AE_MATCHNAME_TABLE.md`
-- Common failure modes: `references/ae-agent/AE_PITFALLS.md`
-- Task-specific cards: `references/ae-agent/tasks/`
+This `SKILL.md` owns bridge workflow. For JSX rules, match names, or high-risk tasks, choose one focused file from `references/ae-agent/AE_INDEX.md`.
 
 Use bundled templates from `assets/templates/` when they fit the task:
 
@@ -64,6 +57,8 @@ or with an explicit AE path:
 python client\send_to_ae.py --afterfx "C:\path\to\AfterFX.com" scripts\your_script.jsx
 ```
 
+Use `--timeout-seconds <seconds>` when a deliberate long-running operation needs more than the default 60-second limit.
+
 By default, `send_to_ae.py` protects the user's project before running a target script:
 
 - AE must have an open project.
@@ -85,6 +80,8 @@ $.global.AE_BRIDGE_RESULT_PATH
 ```
 
 Use them for reports and temporary outputs instead of hardcoded paths.
+
+Every command prints a `Run ID` and `Run Dir`. The run directory contains `result.json`, any task-specific reports, wrapper JSX, and optional visual previews. The bridge keeps the latest 10 run directories.
 
 Treat `[AE OK]` as proof that JSX finished without throwing. For meaningful changes, verify AE state from inside AE.
 
@@ -110,7 +107,7 @@ For animated comps or after a batch of timing-sensitive changes, request a low-f
 python client\send_to_ae.py scripts\your_script.jsx --capture-video
 ```
 
-Use this only when animation, transitions, temporal effects, or multiple sequential edits need visual verification. The preview video path temporarily switches the project to `8 bpc`, captures a capped PNG sequence with `saveFrameToPng`, restores the original bit depth, then assembles a `preview.mp4` and `preview_contact_sheet.png` on the Python side. It does not use or modify Render Queue. Defaults are 4 fps playback, at most 48 sampled frames, 960 px max edge, and 10 rolling timestamped preview folders under `temp/preview_videos/`. Treat this as an agent inspection preview, not a final color-fidelity render.
+Use this only when animation, transitions, temporal effects, or multiple sequential edits need visual verification. The preview video path temporarily switches the project to `8 bpc`, captures a capped PNG sequence with `saveFrameToPng`, restores the original bit depth, then assembles a `preview.mp4` and `preview_contact_sheet.png` in the current run directory. It does not use or modify Render Queue. Defaults are 4 fps playback, at most 48 sampled frames, and a 960 px maximum edge. Treat this as an agent inspection preview, not a final color-fidelity render.
 
 ## Verification Workflow
 
@@ -120,7 +117,7 @@ After any meaningful AE operation, run:
 python client\send_to_ae.py --no-protect scripts\ae_inspect_project.jsx
 ```
 
-Then read `logs/project_structure.json` and compare concrete facts: comp names, dimensions, duration, layer names, text, source names, effect counts, keyframe counts, output files, and saved project paths.
+Then read `<Run Dir>/project_structure.json` and compare concrete facts: comp names, dimensions, duration, layer names, text, source names, effect counts, keyframe counts, output files, and saved project paths.
 
 When visual appearance matters, also capture a frame after the operation or batch. Do not capture after every tiny change. Prefer `--capture-time-mode middle` or `--capture-time-mode two-thirds` for animated comps unless the user's request points to a specific time. Use the default `saveframe-8bpc` capture for routine checks; use `--capture-method render-queue` only when color fidelity needs confirmation. If the comp has meaningful animation or the task changed timing across several moments, use `--capture-video` once at the end so the agent can inspect both the generated MP4 and contact sheet.
 
@@ -172,52 +169,16 @@ Prefer a task-specific report file when the result cannot be fully captured by `
 
 ## JSX Authoring Rules
 
-Write After Effects scripts as ExtendScript-compatible `.jsx`:
+Read `references/ae-agent/AE_CORE_RULES.md` before writing normal JSX. For every mutating request, reuse one `--operation-id` across the related bridge calls. Use `--no-protect` only for read-only checks, disposable tests, or explicitly approved recovery work.
 
-- Prefer `var`.
-- Do not use `let`, `const`, arrow functions, classes, template literals, destructuring, `Promise`, `async`, `await`, `fetch`, `XMLHttpRequest`, browser DOM APIs, `window`, or `document`.
-- Use plain `for` loops; avoid relying on modern Array methods.
-- Use ExtendScript `File` and `Folder` for filesystem work.
-
-Project safety:
-
-- Run mutating scripts through the bridge's default protection.
-- Reuse one `--operation-id` across all bridge calls in the same user request.
-- Use `--no-protect` only for read-only checks, disposable bridge tests, or explicitly approved recovery workflows.
-- Wrap project edits with `app.beginUndoGroup("name")` and `app.endUndoGroup()`.
-- Use `try/finally` so `endUndoGroup()` runs after failures.
-- Before active comp work, check `app.project.activeItem instanceof CompItem`.
-- Before selected-layer work, check `comp.selectedLayers.length`.
-- Remember AE collection indexes are often 1-based: `app.project.item(1)`, `comp.layer(1)`, `property.keyTime(1)`.
-- Remember `comp.selectedLayers` is a 0-based JavaScript array.
-
-Property access:
-
-- Prefer stable `matchName` values where known, for example `ADBE Transform Group`, `ADBE Position`, `ADBE Opacity`, `ADBE Effect Parade`.
-- Do not invent match names. If a matchName is not verified, mark it `needs_verify`.
-- Display names can be localized; use them only when no verified matchName is known or when the API requires a template/display string.
-- Always null-check property lookups before using returned objects.
-- Adding properties to indexed groups can invalidate existing references. Reacquire properties after `addProperty()` when continuing work.
-
-Text:
-
-- `Source Text` is a `TextDocument` property.
-- Read it with `.value`, edit the `TextDocument`, then write it back with `.setValue(textDoc)`.
-
-Output and expressions:
-
-- Avoid `alert()` in normal workflows.
-- Prefer `$.writeln()` or writing a small report file.
-- With this bridge, prefer `$.global.AE_BRIDGE_LOGS_DIR` for reports.
-- After key visual edits or a long batch of changes, use `--capture-frame` so the agent can inspect a rendered PNG. For animated comps or timing-sensitive work, use `--capture-video` once at the end instead of depending only on a still frame. Avoid capture for routine read-only checks because AE may mark the project dirty after temporary bit-depth changes. Use `--capture-method render-queue` only when the default preview has obvious color issues or needs high-fidelity confirmation.
-- Scripting API and expression runtime are separate. `property.expression = "..."` assigns an expression string; it does not mean expression APIs are available to JSX.
-- Check `property.canSetExpression` before setting expressions.
+Write reports to `$.global.AE_BRIDGE_LOGS_DIR` and temporary outputs to `$.global.AE_BRIDGE_TEMP_DIR`. Avoid `alert()` in normal workflows. Use the frame or video capture options only after meaningful visual changes.
 
 ## Built-In Bridge Checks
 
 Use these from the bridge root:
 
 ```bat
+python -m unittest discover -s client -p test_send_to_ae.py
 python client\send_to_ae.py --no-protect scripts\ae_test_create_comp.jsx
 python client\send_to_ae.py --no-protect scripts\ae_test_modify_active_comp.jsx
 python client\send_to_ae.py --no-protect scripts\ae_test_error.jsx

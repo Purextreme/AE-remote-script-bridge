@@ -1,19 +1,13 @@
-import datetime as dt
 import json
 import shutil
 import subprocess
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CAPTURE_RESULT_PATH = PROJECT_ROOT / "logs" / "frame_capture_result.json"
-VIDEO_CAPTURE_RESULT_PATH = PROJECT_ROOT / "logs" / "video_capture_result.json"
-TEMP_DIR = PROJECT_ROOT / "temp"
 DEFAULT_CAPTURE_MAX_EDGE = 1500
 DEFAULT_VIDEO_CAPTURE_MAX_EDGE = 960
 DEFAULT_VIDEO_CAPTURE_FPS = 4.0
 DEFAULT_VIDEO_CAPTURE_MAX_FRAMES = 48
-MAX_VIDEO_CAPTURE_RUNS = 10
 
 
 def to_extendscript_path(path):
@@ -29,10 +23,12 @@ def escape_extendscript_string(value):
     )
 
 
-def build_saveframe_8bpc_capture_jsx(capture_basename, time_mode, capture_time):
-    result_path = escape_extendscript_string(to_extendscript_path(CAPTURE_RESULT_PATH))
+def build_saveframe_8bpc_capture_jsx(
+    capture_basename, time_mode, capture_time, result_path, temp_dir
+):
+    result_path = escape_extendscript_string(to_extendscript_path(result_path))
     output_path = escape_extendscript_string(
-        to_extendscript_path(TEMP_DIR / (capture_basename + ".png"))
+        to_extendscript_path(Path(temp_dir) / (capture_basename + ".png"))
     )
     capture_time_text = "null" if capture_time is None else str(float(capture_time))
 
@@ -193,10 +189,12 @@ def build_saveframe_8bpc_capture_jsx(capture_basename, time_mode, capture_time):
     )
 
 
-def build_render_queue_capture_jsx(capture_basename, time_mode, capture_time):
-    result_path = escape_extendscript_string(to_extendscript_path(CAPTURE_RESULT_PATH))
+def build_render_queue_capture_jsx(
+    capture_basename, time_mode, capture_time, result_path, temp_dir
+):
+    result_path = escape_extendscript_string(to_extendscript_path(result_path))
     output_base = escape_extendscript_string(
-        to_extendscript_path(TEMP_DIR / (capture_basename + ".png"))
+        to_extendscript_path(Path(temp_dir) / (capture_basename + ".png"))
     )
     capture_time_text = "null" if capture_time is None else str(float(capture_time))
 
@@ -413,11 +411,9 @@ def build_render_queue_capture_jsx(capture_basename, time_mode, capture_time):
 
 
 def build_saveframe_8bpc_sequence_capture_jsx(
-    capture_dir, capture_fps, max_frames
+    capture_dir, capture_fps, max_frames, result_path
 ):
-    result_path = escape_extendscript_string(
-        to_extendscript_path(VIDEO_CAPTURE_RESULT_PATH)
-    )
+    result_path = escape_extendscript_string(to_extendscript_path(result_path))
     output_dir = escape_extendscript_string(to_extendscript_path(capture_dir))
 
     return """(function () {
@@ -630,12 +626,13 @@ def build_saveframe_8bpc_sequence_capture_jsx(
     )
 
 
-def normalize_capture(capture_result, max_edge):
+def normalize_capture(capture_result, max_edge, result_path, preview_path):
     output_path = Path(capture_result.get("outputPath", ""))
     if not output_path.exists():
         raise FileNotFoundError("Captured frame not found: " + str(output_path))
 
-    preview_path = TEMP_DIR / "latest_frame_capture_preview.png"
+    result_path = Path(result_path)
+    preview_path = Path(preview_path)
 
     try:
         from PIL import Image
@@ -645,7 +642,7 @@ def normalize_capture(capture_result, max_edge):
             print("[AE CAPTURE WARNING]")
             print("Pillow is not installed; copied full-size capture without resizing.")
         capture_result["previewPath"] = str(preview_path)
-        CAPTURE_RESULT_PATH.write_text(
+        result_path.write_text(
             json.dumps(capture_result, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -660,46 +657,11 @@ def normalize_capture(capture_result, max_edge):
     capture_result["previewPath"] = str(preview_path)
     capture_result["previewWidth"] = image.width
     capture_result["previewHeight"] = image.height
-    CAPTURE_RESULT_PATH.write_text(
+    result_path.write_text(
         json.dumps(capture_result, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     return capture_result
-
-def path_is_inside(path, parent):
-    try:
-        path.resolve().relative_to(parent.resolve())
-    except ValueError:
-        return False
-    return True
-
-
-def prune_video_capture_runs(keep_runs):
-    root = TEMP_DIR / "preview_videos"
-    root.mkdir(parents=True, exist_ok=True)
-    if keep_runs < 1:
-        keep_runs = 1
-
-    runs = [
-        path
-        for path in root.iterdir()
-        if path.is_dir() and path.name.startswith("video_capture_")
-    ]
-    runs.sort(key=lambda path: path.stat().st_mtime, reverse=True)
-
-    for stale_run in runs[keep_runs:]:
-        if path_is_inside(stale_run, root):
-            shutil.rmtree(stale_run)
-
-
-def create_video_capture_dir():
-    root = TEMP_DIR / "preview_videos"
-    root.mkdir(parents=True, exist_ok=True)
-    timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    capture_dir = root / ("video_capture_" + timestamp)
-    capture_dir.mkdir(parents=False, exist_ok=False)
-    return capture_dir
-
 
 def resize_video_frame(source_path, dest_path, max_edge):
     from PIL import Image
@@ -780,7 +742,7 @@ def assemble_preview_video(video_path, playback_fps):
     return ""
 
 
-def normalize_video_capture(capture_result, max_edge, playback_fps):
+def normalize_video_capture(capture_result, max_edge, playback_fps, result_path):
     frame_paths = [Path(path) for path in capture_result.get("framePaths", [])]
     frame_times = capture_result.get("frameTimes", [])
     if not frame_paths:
@@ -810,23 +772,16 @@ def normalize_video_capture(capture_result, max_edge, playback_fps):
     video_path = preview_dir / "preview.mp4"
     video_warning = assemble_preview_video(video_path, playback_fps)
 
-    latest_contact_sheet = TEMP_DIR / "latest_video_capture_contact_sheet.png"
-    shutil.copy2(contact_sheet_path, latest_contact_sheet)
-
     capture_result["previewDir"] = str(preview_dir)
     capture_result["contactSheetPath"] = str(contact_sheet_path)
-    capture_result["latestContactSheetPath"] = str(latest_contact_sheet)
     capture_result["playbackFps"] = playback_fps
     capture_result["previewMaxEdge"] = max_edge
     if video_warning:
         capture_result["videoWarning"] = video_warning
     else:
-        latest_video = TEMP_DIR / "latest_video_capture_preview.mp4"
-        shutil.copy2(video_path, latest_video)
         capture_result["videoPath"] = str(video_path)
-        capture_result["latestVideoPath"] = str(latest_video)
 
-    VIDEO_CAPTURE_RESULT_PATH.write_text(
+    Path(result_path).write_text(
         json.dumps(capture_result, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )

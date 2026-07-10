@@ -10,30 +10,23 @@ import time
 from pathlib import Path
 
 from capture_preview import (
-    CAPTURE_RESULT_PATH,
     DEFAULT_CAPTURE_MAX_EDGE,
     DEFAULT_VIDEO_CAPTURE_FPS,
     DEFAULT_VIDEO_CAPTURE_MAX_EDGE,
     DEFAULT_VIDEO_CAPTURE_MAX_FRAMES,
-    MAX_VIDEO_CAPTURE_RUNS,
-    VIDEO_CAPTURE_RESULT_PATH,
     build_render_queue_capture_jsx,
     build_saveframe_8bpc_capture_jsx,
     build_saveframe_8bpc_sequence_capture_jsx,
-    create_video_capture_dir,
     normalize_capture,
     normalize_video_capture,
-    prune_video_capture_runs,
 )
+from run_context import MAX_RUNS, create_run_context, prune_run_contexts
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config.json"
-RESULT_PATH = PROJECT_ROOT / "logs" / "latest_result.json"
-PREFLIGHT_RESULT_PATH = PROJECT_ROOT / "logs" / "preflight_result.json"
 PROTECTION_STATE_PATH = PROJECT_ROOT / "logs" / "protection_state.json"
-TEMP_DIR = PROJECT_ROOT / "temp"
-TIMEOUT_SECONDS = 20
+TIMEOUT_SECONDS = 60
 DEFAULT_ADOBE_DIR = Path("C:/Program Files/Adobe")
 BACKUP_PREFIX = "agent backup"
 BACKUP_DIR_NAME = "agent backups"
@@ -140,16 +133,20 @@ def resolve_afterfx_path(cli_afterfx_path):
     )
 
 
-def build_wrapper_jsx(target_jsx):
+def build_wrapper_jsx(target_jsx, run_context):
     target_path = escape_extendscript_string(to_extendscript_path(target_jsx))
     bridge_root = escape_extendscript_string(to_extendscript_path(PROJECT_ROOT))
-    logs_dir = escape_extendscript_string(to_extendscript_path(RESULT_PATH.parent))
-    temp_dir = escape_extendscript_string(to_extendscript_path(TEMP_DIR))
-    result_path = escape_extendscript_string(to_extendscript_path(RESULT_PATH))
+    logs_dir = escape_extendscript_string(to_extendscript_path(run_context.run_dir))
+    temp_dir = escape_extendscript_string(to_extendscript_path(run_context.temp_dir))
+    result_path = escape_extendscript_string(
+        to_extendscript_path(run_context.result_path)
+    )
+    run_id = escape_extendscript_string(run_context.run_id)
 
     return """(function () {
     var targetFile = new File("%s");
     var resultFile = new File("%s");
+    var runId = "%s";
     $.global.AE_BRIDGE_ROOT = "%s";
     $.global.AE_BRIDGE_LOGS_DIR = "%s";
     $.global.AE_BRIDGE_TEMP_DIR = "%s";
@@ -170,6 +167,7 @@ def build_wrapper_jsx(target_jsx):
         resultFile.open("w");
         resultFile.write("{");
         resultFile.write('"ok":' + (ok ? "true" : "false"));
+        resultFile.write(',"runId":"' + runId + '"');
         resultFile.write(',"message":"' + escapeJson(message) + '"');
         if (line !== null && line !== undefined) {
             resultFile.write(',"line":' + line);
@@ -187,6 +185,7 @@ def build_wrapper_jsx(target_jsx):
 })();""" % (
         target_path,
         result_path,
+        run_id,
         bridge_root,
         logs_dir,
         temp_dir,
@@ -194,10 +193,8 @@ def build_wrapper_jsx(target_jsx):
     )
 
 
-def build_preflight_jsx(show_alert, allow_dirty):
-    result_path = escape_extendscript_string(
-        to_extendscript_path(PREFLIGHT_RESULT_PATH)
-    )
+def build_preflight_jsx(show_alert, allow_dirty, result_path):
+    result_path = escape_extendscript_string(to_extendscript_path(result_path))
 
     return """(function () {
     var resultFile = new File("%s");
@@ -271,34 +268,85 @@ def build_preflight_jsx(show_alert, allow_dirty):
     )
 
 
-def wait_for_result(result_path, timeout_seconds=TIMEOUT_SECONDS):
-    deadline = time.time() + timeout_seconds
-    last_error = None
-    while time.time() < deadline:
+def wait_for_result(result_path, deadline, expected_run_id=None):
+    last_json_error = None
+    mismatched_run_id = None
+    while time.monotonic() < deadline:
         if result_path.exists():
             try:
                 with result_path.open("r", encoding="utf-8-sig") as result_file:
-                    return json.load(result_file)
+                    result = json.load(result_file)
+                if expected_run_id and result.get("runId") != expected_run_id:
+                    mismatched_run_id = result.get("runId")
+                else:
+                    return result
             except json.JSONDecodeError as err:
-                last_error = err
+                last_json_error = err
         time.sleep(0.2)
-    if last_error is not None:
-        raise last_error
-    return None
+    if last_json_error is not None:
+        raise RuntimeError("Result JSON remained incomplete: " + str(last_json_error))
+    if mismatched_run_id is not None:
+        raise RuntimeError(
+            "Result runId did not match. Expected "
+            + expected_run_id
+            + ", received "
+            + str(mismatched_run_id)
+        )
+    raise RuntimeError("No result JSON was generated.")
 
 
 def run_afterfx_script(
-    afterfx_com_path, jsx_path, result_path, timeout_seconds=TIMEOUT_SECONDS
+    afterfx_com_path,
+    jsx_path,
+    result_path,
+    stage,
+    timeout_seconds=TIMEOUT_SECONDS,
+    expected_run_id=None,
 ):
     if result_path.exists():
         result_path.unlink()
 
-    subprocess.run([str(afterfx_com_path), "-r", str(jsx_path)])
+    started_at = time.monotonic()
+    deadline = started_at + timeout_seconds
+    command = [str(afterfx_com_path), "-r", str(jsx_path)]
 
     try:
-        return wait_for_result(result_path, timeout_seconds)
-    except (OSError, json.JSONDecodeError) as err:
-        raise RuntimeError("Could not read result file: " + str(err))
+        completed = subprocess.run(
+            command,
+            timeout=max(0.1, deadline - time.monotonic()),
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.TimeoutExpired as err:
+        raise RuntimeError(
+            "AfterFX.com timed out during "
+            + stage
+            + " after "
+            + str(timeout_seconds)
+            + " seconds. JSX: "
+            + str(jsx_path)
+        ) from err
+
+    try:
+        result = wait_for_result(result_path, deadline, expected_run_id)
+    except (OSError, RuntimeError) as err:
+        detail = completed.stderr.strip()
+        message = "Could not read result for " + stage + ": " + str(err)
+        message += "\nAfterFX.com exit code: " + str(completed.returncode)
+        if detail:
+            message += "\nAfterFX.com stderr: " + detail
+        raise RuntimeError(message) from err
+
+    result["bridge"] = {
+        "stage": stage,
+        "durationMs": round((time.monotonic() - started_at) * 1000),
+        "afterfxExitCode": completed.returncode,
+    }
+    result_path.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return result
 
 
 def make_backup(project_file):
@@ -364,6 +412,14 @@ def set_operation_state(operation_id, project_file, backup_path):
     save_protection_state(state)
 
 
+def print_stage_diagnostics(result):
+    bridge = result.get("bridge", {})
+    if not bridge:
+        return
+    print("AfterFX.com Exit Code: " + str(bridge.get("afterfxExitCode", "")))
+    print("Stage Duration: " + str(bridge.get("durationMs", "")) + " ms")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Send a JSX file to Adobe After Effects through AfterFX.com."
@@ -386,6 +442,12 @@ def main():
     parser.add_argument(
         "--operation-id",
         help="Stable id for one agent operation. The first call backs up the project; later calls with the same id reuse that protection.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=TIMEOUT_SECONDS,
+        help="Maximum time for each AfterFX.com execution, including result collection.",
     )
     parser.add_argument(
         "--capture-frame",
@@ -438,20 +500,14 @@ def main():
         default=DEFAULT_VIDEO_CAPTURE_MAX_EDGE,
         help="Resize video preview frames so their long edge is at most this size. Use 0 to keep original size.",
     )
-    parser.add_argument(
-        "--capture-video-keep-runs",
-        type=int,
-        default=MAX_VIDEO_CAPTURE_RUNS,
-        help="Keep this many timestamped video preview folders under temp/preview_videos.",
-    )
     args = parser.parse_args()
 
+    if args.timeout_seconds <= 0:
+        return fail("[INPUT ERROR]\n--timeout-seconds must be greater than 0.")
     if args.capture_video_fps <= 0:
         return fail("[INPUT ERROR]\n--capture-video-fps must be greater than 0.")
     if args.capture_video_max_frames < 0:
         return fail("[INPUT ERROR]\n--capture-video-max-frames cannot be negative.")
-    if args.capture_video_keep_runs < 1:
-        return fail("[INPUT ERROR]\n--capture-video-keep-runs must be at least 1.")
 
     try:
         afterfx_com_path = resolve_afterfx_path(args.afterfx)
@@ -470,25 +526,33 @@ def main():
     if jsx_path.suffix.lower() != ".jsx":
         return fail("[INPUT ERROR]\nExpected a .jsx file: " + str(jsx_path))
 
-    RESULT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    prune_run_contexts(PROJECT_ROOT, MAX_RUNS - 1)
+    run_context = create_run_context(PROJECT_ROOT)
+
+    print("Run ID: " + run_context.run_id)
+    print("Run Dir: " + str(run_context.run_dir))
 
     if not args.no_protect:
         operation_state = get_operation_state(args.operation_id)
         if operation_state and Path(operation_state.get("backupPath", "")).exists():
-            preflight_path = TEMP_DIR / "ae_bridge_preflight.jsx"
-            write_text_file(preflight_path, build_preflight_jsx(False, True))
+            write_text_file(
+                run_context.preflight_jsx_path,
+                build_preflight_jsx(
+                    False,
+                    True,
+                    run_context.preflight_result_path,
+                ),
+            )
             try:
                 preflight_result = run_afterfx_script(
-                    afterfx_com_path, preflight_path, PREFLIGHT_RESULT_PATH
+                    afterfx_com_path,
+                    run_context.preflight_jsx_path,
+                    run_context.preflight_result_path,
+                    "preflight",
+                    args.timeout_seconds,
                 )
             except RuntimeError as err:
                 return fail("[AE ERROR]\n" + str(err))
-
-            if preflight_result is None:
-                print("[AE TIMEOUT]")
-                print("No preflight result file generated.")
-                return 1
 
             if not preflight_result.get("ok"):
                 print("[AE ERROR]")
@@ -506,19 +570,24 @@ def main():
             print("[AE BACKUP REUSED]")
             print(operation_state.get("backupPath", ""))
         else:
-            preflight_path = TEMP_DIR / "ae_bridge_preflight.jsx"
-            write_text_file(preflight_path, build_preflight_jsx(not args.no_alert, False))
+            write_text_file(
+                run_context.preflight_jsx_path,
+                build_preflight_jsx(
+                    not args.no_alert,
+                    False,
+                    run_context.preflight_result_path,
+                ),
+            )
             try:
                 preflight_result = run_afterfx_script(
-                    afterfx_com_path, preflight_path, PREFLIGHT_RESULT_PATH
+                    afterfx_com_path,
+                    run_context.preflight_jsx_path,
+                    run_context.preflight_result_path,
+                    "preflight",
+                    args.timeout_seconds,
                 )
             except RuntimeError as err:
                 return fail("[AE ERROR]\n" + str(err))
-
-            if preflight_result is None:
-                print("[AE TIMEOUT]")
-                print("No preflight result file generated.")
-                return 1
 
             if not preflight_result.get("ok"):
                 print("[AE ERROR]")
@@ -539,58 +608,63 @@ def main():
             print("[AE BACKUP]")
             print(str(backup_path))
 
-    wrapper_path = TEMP_DIR / "ae_bridge_wrapper.jsx"
-    write_text_file(wrapper_path, build_wrapper_jsx(jsx_path))
+    write_text_file(
+        run_context.wrapper_jsx_path,
+        build_wrapper_jsx(jsx_path, run_context),
+    )
 
     print("AE Path: " + str(afterfx_com_path))
     print("JSX Path: " + str(jsx_path))
 
     try:
-        result = run_afterfx_script(afterfx_com_path, wrapper_path, RESULT_PATH)
+        result = run_afterfx_script(
+            afterfx_com_path,
+            run_context.wrapper_jsx_path,
+            run_context.result_path,
+            "target script",
+            args.timeout_seconds,
+            run_context.run_id,
+        )
     except RuntimeError as err:
         return fail("[AE ERROR]\n" + str(err))
-
-    if result is None:
-        print("[AE TIMEOUT]")
-        print("No result file generated.")
-        return 1
 
     if result.get("ok"):
         print("[AE OK]")
         print(result.get("message", "Script executed successfully."))
+        print_stage_diagnostics(result)
 
         if args.capture_frame:
-            capture_basename = "frame_capture_" + dt.datetime.now().strftime(
-                "%Y%m%d_%H%M%S_%f"
-            )
-            capture_path = TEMP_DIR / "ae_bridge_capture_frame.jsx"
+            capture_basename = "frame_capture"
             if args.capture_method == "render-queue":
                 capture_jsx = build_render_queue_capture_jsx(
                     capture_basename,
                     args.capture_time_mode,
                     args.capture_time,
+                    run_context.frame_capture_result_path,
+                    run_context.temp_dir,
                 )
             else:
                 capture_jsx = build_saveframe_8bpc_capture_jsx(
                     capture_basename,
                     args.capture_time_mode,
                     args.capture_time,
+                    run_context.frame_capture_result_path,
+                    run_context.temp_dir,
                 )
             write_text_file(
-                capture_path,
+                run_context.frame_capture_jsx_path,
                 capture_jsx,
             )
             try:
                 capture_result = run_afterfx_script(
-                    afterfx_com_path, capture_path, CAPTURE_RESULT_PATH
+                    afterfx_com_path,
+                    run_context.frame_capture_jsx_path,
+                    run_context.frame_capture_result_path,
+                    "frame capture",
+                    args.timeout_seconds,
                 )
             except RuntimeError as err:
                 return fail("[AE CAPTURE ERROR]\n" + str(err))
-
-            if capture_result is None:
-                print("[AE CAPTURE TIMEOUT]")
-                print("No frame capture result file generated.")
-                return 1
 
             if not capture_result.get("ok"):
                 print("[AE CAPTURE ERROR]")
@@ -599,7 +673,10 @@ def main():
 
             try:
                 capture_result = normalize_capture(
-                    capture_result, args.capture_max_edge
+                    capture_result,
+                    args.capture_max_edge,
+                    run_context.frame_capture_result_path,
+                    run_context.frame_preview_path,
                 )
             except OSError as err:
                 return fail("[AE CAPTURE ERROR]\n" + str(err))
@@ -610,38 +687,34 @@ def main():
             print("Time: " + str(capture_result.get("time", "")))
             print("Output: " + capture_result.get("outputPath", ""))
             print("Preview: " + capture_result.get("previewPath", ""))
+            print_stage_diagnostics(capture_result)
             if capture_result.get("dirtyChangedByCapture"):
                 print("[AE CAPTURE WARNING]")
                 print("Frame capture restored transient settings but marked the project dirty.")
 
         if args.capture_video:
-            prune_video_capture_runs(args.capture_video_keep_runs - 1)
-            capture_dir = create_video_capture_dir()
-            capture_path = TEMP_DIR / "ae_bridge_capture_video.jsx"
+            run_context.video_capture_dir.mkdir(parents=True, exist_ok=False)
             capture_jsx = build_saveframe_8bpc_sequence_capture_jsx(
-                capture_dir,
+                run_context.video_capture_dir,
                 args.capture_video_fps,
                 args.capture_video_max_frames,
+                run_context.video_capture_result_path,
             )
-            write_text_file(capture_path, capture_jsx)
+            write_text_file(run_context.video_capture_jsx_path, capture_jsx)
             try:
                 video_timeout = max(
-                    TIMEOUT_SECONDS,
+                    args.timeout_seconds,
                     (args.capture_video_max_frames or 120) * 2,
                 )
                 video_result = run_afterfx_script(
                     afterfx_com_path,
-                    capture_path,
-                    VIDEO_CAPTURE_RESULT_PATH,
+                    run_context.video_capture_jsx_path,
+                    run_context.video_capture_result_path,
+                    "video capture",
                     video_timeout,
                 )
             except RuntimeError as err:
                 return fail("[AE VIDEO CAPTURE ERROR]\n" + str(err))
-
-            if video_result is None:
-                print("[AE VIDEO CAPTURE TIMEOUT]")
-                print("No video capture result file generated.")
-                return 1
 
             if not video_result.get("ok"):
                 print("[AE VIDEO CAPTURE ERROR]")
@@ -653,11 +726,10 @@ def main():
                     video_result,
                     args.capture_video_max_edge,
                     args.capture_video_fps,
+                    run_context.video_capture_result_path,
                 )
             except (OSError, RuntimeError, ValueError) as err:
                 return fail("[AE VIDEO CAPTURE ERROR]\n" + str(err))
-
-            prune_video_capture_runs(args.capture_video_keep_runs)
 
             print("[AE VIDEO CAPTURE OK]")
             print("Method: " + video_result.get("method", ""))
@@ -667,13 +739,9 @@ def main():
             print("Output Dir: " + video_result.get("outputDir", ""))
             if video_result.get("videoPath"):
                 print("Video: " + video_result.get("videoPath", ""))
-                print("Latest Video: " + video_result.get("latestVideoPath", ""))
             if video_result.get("contactSheetPath"):
                 print("Contact Sheet: " + video_result.get("contactSheetPath", ""))
-                print(
-                    "Latest Contact Sheet: "
-                    + video_result.get("latestContactSheetPath", "")
-                )
+            print_stage_diagnostics(video_result)
             if video_result.get("videoWarning"):
                 print("[AE VIDEO CAPTURE WARNING]")
                 print(video_result.get("videoWarning", ""))
@@ -686,6 +754,7 @@ def main():
     print(result.get("message", "Unknown AE script error."))
     if "line" in result:
         print("Line: " + str(result["line"]))
+    print_stage_diagnostics(result)
     return 1
 
 
