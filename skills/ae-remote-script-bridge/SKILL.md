@@ -109,6 +109,10 @@ python client\send_to_ae.py scripts\your_script.jsx --capture-video
 
 Use this only when animation, transitions, temporal effects, or multiple sequential edits need visual verification. The preview video path temporarily switches the project to `8 bpc`, captures a capped PNG sequence with `saveFrameToPng`, restores the original bit depth, then assembles a `preview.mp4` and `preview_contact_sheet.png` in the current run directory. It does not use or modify Render Queue. Defaults are 4 fps playback, at most 48 sampled frames, and a 960 px maximum edge. Treat this as an agent inspection preview, not a final color-fidelity render.
 
+## Reference Images and Shape Construction
+
+Prioritize geometric quality over literal reproduction when recreating shapes from screenshots, video, or web images. A reference can contain incidental perspective, tilt, scaling artifacts, or capture distortion. For inherently regular objects such as icons, mouse cursors, symmetric marks, and rectangular controls, first build a clean, canonical, front-facing shape with correct proportions and curves. Then separately apply rotation, scale, position, or other scene-fitting transforms. If a one-step recreation would reduce quality, split construction from placement; when the intended angle or distortion is ambiguous, ask the user rather than baking accidental reference-image skew into the asset.
+
 ## Verification Workflow
 
 After any meaningful AE operation, run:
