@@ -30,7 +30,7 @@ logs/
 temp/
 ```
 
-If the workspace does not contain a bridge, copy `assets/bridge/` from this skill into the workspace. The copied bridge is self-contained.
+If the workspace does not contain a bridge, copy `assets/bridge/` from this skill into the workspace. The copied directory contains all code needed for JSX sending and project protection; those core paths use only the Python standard library.
 
 The bridge uses `AfterFX.com -r`, not `AfterFX.exe -r`.
 
@@ -42,6 +42,16 @@ The bridge uses `AfterFX.com -r`, not `AfterFX.exe -r`.
 4. automatic search under `C:\Program Files\Adobe\Adobe After Effects *\Support Files\AfterFX.com`
 
 If automatic discovery fails, create a bridge-local `config.json` based on `config.example.json` or pass `--afterfx`.
+
+## Optional Preview Dependencies
+
+Frame capture still works without third-party Python packages, but Pillow is required to resize frame previews and to create video frames and contact sheets. Install it in the active virtual environment from the bridge root:
+
+```bat
+python -m pip install -r requirements-preview.txt
+```
+
+MP4 assembly also requires `ffmpeg` on `PATH`. Without Pillow, `--capture-frame` copies the full-size PNG and `--capture-video` fails with a dependency error. Without `ffmpeg`, video capture still produces the contact sheet and reports a warning, but no MP4.
 
 ## Running JSX
 
@@ -180,6 +190,8 @@ Read `references/ae-agent/AE_CORE_RULES.md` before writing normal JSX. For every
 Write reports to `$.global.AE_BRIDGE_LOGS_DIR` and temporary outputs to `$.global.AE_BRIDGE_TEMP_DIR`. Avoid `alert()` in normal workflows. Use the frame or video capture options only after meaningful visual changes.
 
 ## Built-In Bridge Checks
+
+Run the Python unit tests from any bridge checkout. Run the AE commands only after opening a disposable test project. They create and remove project items, and `ae_test_integration_ops.jsx` renders and saves the current project into the run's temporary directory, changing its current save path. Never run these AE checks against a working project.
 
 Use these from the bridge root:
 

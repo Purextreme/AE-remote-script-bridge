@@ -378,6 +378,37 @@ def make_backup(project_file):
     return backup_path
 
 
+def is_reusable_operation_state(operation_state, now=None):
+    if not isinstance(operation_state, dict):
+        return False
+    try:
+        created_at = dt.datetime.fromisoformat(operation_state["createdAt"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if created_at.tzinfo is not None:
+        return False
+
+    now = now or dt.datetime.now()
+    age = now - created_at
+    if age < dt.timedelta(0) or age > PROTECTION_STATE_MAX_AGE:
+        return False
+
+    project_file = operation_state.get("projectFile")
+    backup_path = operation_state.get("backupPath")
+    if not isinstance(project_file, str) or not project_file.strip():
+        return False
+    if not isinstance(backup_path, str) or not backup_path.strip():
+        return False
+
+    project_path = Path(project_file)
+    backup_file = Path(backup_path)
+    return (
+        project_path.is_absolute()
+        and backup_file.is_absolute()
+        and backup_file.is_file()
+    )
+
+
 def load_protection_state():
     if not PROTECTION_STATE_PATH.exists():
         return {}
@@ -387,14 +418,14 @@ def load_protection_state():
     except (OSError, json.JSONDecodeError):
         return {}
 
+    if not isinstance(state, dict):
+        save_protection_state({})
+        return {}
+
     now = dt.datetime.now()
     active_state = {}
     for operation_id, operation_state in state.items():
-        try:
-            created_at = dt.datetime.fromisoformat(operation_state["createdAt"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if now - created_at <= PROTECTION_STATE_MAX_AGE:
+        if is_reusable_operation_state(operation_state, now):
             active_state[operation_id] = operation_state
 
     if active_state != state:
@@ -554,7 +585,7 @@ def main():
 
     if not args.no_protect:
         operation_state = get_operation_state(args.operation_id)
-        if operation_state and Path(operation_state.get("backupPath", "")).exists():
+        if is_reusable_operation_state(operation_state):
             write_text_file(
                 run_context.preflight_jsx_path,
                 build_preflight_jsx(

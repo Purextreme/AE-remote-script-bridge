@@ -1,4 +1,16 @@
 (function () {
+    var compName = "AE_Smooth_Curve_Test";
+
+    function removeExistingTestComps() {
+        var i;
+        for (i = app.project.numItems; i >= 1; i -= 1) {
+            var item = app.project.item(i);
+            if (item instanceof CompItem && item.name === compName) {
+                item.remove();
+            }
+        }
+    }
+
     function addPath(contents, name, shape, color, position) {
         var group = contents.addProperty("ADBE Vector Group");
         group.name = name;
@@ -54,7 +66,8 @@
 
     app.beginUndoGroup("AE Smooth Curve Test");
     try {
-        var comp = app.project.items.addComp("AE_Smooth_Curve_Test", 1200, 600, 1, 2, 30);
+        removeExistingTestComps();
+        var comp = app.project.items.addComp(compName, 1200, 600, 1, 2, 30);
         var layer = comp.layers.addShape();
         layer.name = "Polygon versus Bezier Arc";
         layer.property("ADBE Transform Group")

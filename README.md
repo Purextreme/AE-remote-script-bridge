@@ -69,3 +69,7 @@ python client\send_to_ae.py scripts\your_script.jsx --capture-video
 视频预览同样走临时 `8 bpc` 的 `saveFrameToPng` 路径，不使用 Render Queue。bridge 会按当前合成时长均匀抽样 PNG 序列，再生成 MP4 和 contact sheet。默认最多抽 `48` 帧、以 `4fps` 播放、长边不超过 `960px`，适合检查动画节奏和关键画面变化，不作为最终画质渲染。文件保存在当前运行目录的 `temp\video_preview\` 下，并随最近 10 次运行一起滚动清理。
 
 如果只是静态合成或只改了单帧视觉，不需要生成视频；继续使用 `--capture-frame` 更快。
+
+## 可选预览依赖
+
+核心 JSX 发送和工程保护只使用 Python 标准库。Pillow 用于缩放单帧预览，并且是视频帧和 contact sheet 的必要依赖；在已激活的虚拟环境中从 bridge 根目录运行 `python -m pip install -r requirements-preview.txt`。MP4 生成还要求 `ffmpeg` 位于 `PATH`；缺少 `ffmpeg` 时仍会生成 contact sheet 并返回 warning，但不会生成 MP4。
