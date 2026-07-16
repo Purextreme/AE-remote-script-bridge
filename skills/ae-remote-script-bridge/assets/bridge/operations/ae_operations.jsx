@@ -66,6 +66,34 @@
         return matches[0];
     }
 
+    function resolveItem(args, requireFootage) {
+        var matches = [];
+        var i;
+        var item;
+        for (i = 1; i <= app.project.numItems; i++) {
+            item = app.project.item(i);
+            if (
+                (args.itemId !== undefined && item.id === args.itemId) ||
+                (args.itemName !== undefined && item.name === args.itemName)
+            ) {
+                matches.push(item);
+            }
+        }
+        if (matches.length === 0) {
+            throw new Error("Project item not found.");
+        }
+        if (matches.length > 1) {
+            throw new Error(
+                "Project item target is ambiguous: " + matches.length +
+                " exact matches. Use itemId."
+            );
+        }
+        if (requireFootage && !(matches[0] instanceof FootageItem)) {
+            throw new Error("Project item '" + matches[0].name + "' is not footage.");
+        }
+        return matches[0];
+    }
+
     function resolveLayer(comp, args) {
         var matches = [];
         var i;
@@ -98,6 +126,71 @@
             throw new Error(
                 "Layer target is ambiguous in composition '" + comp.name +
                 "': " + matches.length + " exact matches. Use layerId or layerIndex."
+            );
+        }
+        return matches[0];
+    }
+
+    function resolveEffect(layer, args) {
+        var effects = layer.property("ADBE Effect Parade");
+        var matches = [];
+        var i;
+        var effect;
+        if (!effects) {
+            throw new Error("Effects group not found on layer '" + layer.name + "'.");
+        }
+        if (args.effectIndex !== undefined && args.effectIndex !== null) {
+            if (args.effectIndex >= 1 && args.effectIndex <= effects.numProperties) {
+                matches.push(effects.property(args.effectIndex));
+            }
+        } else {
+            for (i = 1; i <= effects.numProperties; i++) {
+                effect = effects.property(i);
+                if (
+                    (args.effectName !== undefined && effect.name === args.effectName) ||
+                    (
+                        args.effectMatchName !== undefined &&
+                        effect.matchName === args.effectMatchName
+                    )
+                ) {
+                    matches.push(effect);
+                }
+            }
+        }
+        if (matches.length === 0) {
+            throw new Error("Effect not found on layer '" + layer.name + "'.");
+        }
+        if (matches.length > 1) {
+            throw new Error(
+                "Effect target is ambiguous on layer '" + layer.name +
+                "': " + matches.length + " exact matches. Use effectIndex."
+            );
+        }
+        return matches[0];
+    }
+
+    function resolveEffectProperty(effect, args) {
+        var matches = [];
+        var i;
+        var property;
+        if (args.propertyIndex !== undefined && args.propertyIndex !== null) {
+            if (args.propertyIndex >= 1 && args.propertyIndex <= effect.numProperties) {
+                matches.push(effect.property(args.propertyIndex));
+            }
+        } else {
+            for (i = 1; i <= effect.numProperties; i++) {
+                property = effect.property(i);
+                if (property.matchName === args.propertyMatchName) {
+                    matches.push(property);
+                }
+            }
+        }
+        if (matches.length === 0) {
+            throw new Error("Effect property not found on effect '" + effect.name + "'.");
+        }
+        if (matches.length > 1) {
+            throw new Error(
+                "Effect property target is ambiguous on effect '" + effect.name + "'."
             );
         }
         return matches[0];
@@ -206,7 +299,7 @@
     }
 
     function layerSummary(layer) {
-        return {
+        var output = {
             id: layerId(layer),
             index: layer.index,
             name: layer.name,
@@ -219,6 +312,65 @@
             threeDLayer: !!layer.threeDLayer,
             parent: layer.parent ? layer.parent.name : null
         };
+        if (layer instanceof AVLayer && layer.source) {
+            output.source = {id: layer.source.id, name: layer.source.name};
+        }
+        return output;
+    }
+
+    function compSummary(comp) {
+        return {
+            id: comp.id,
+            name: comp.name,
+            width: comp.width,
+            height: comp.height,
+            pixelAspect: comp.pixelAspect,
+            duration: comp.duration,
+            frameRate: comp.frameRate,
+            bgColor: safeValue(comp.bgColor),
+            numLayers: comp.numLayers,
+            time: comp.time,
+            workAreaStart: comp.workAreaStart,
+            workAreaDuration: comp.workAreaDuration
+        };
+    }
+
+    function footageSummary(item) {
+        var output = {
+            id: item.id,
+            name: item.name,
+            width: item.width,
+            height: item.height,
+            duration: item.duration,
+            frameRate: item.frameRate,
+            footageMissing: !!item.footageMissing,
+            fileExists: false,
+            path: null
+        };
+        try {
+            output.path = item.file ? item.file.fsName : null;
+            output.fileExists = item.file ? item.file.exists : false;
+        } catch (fileError) {
+            output.path = null;
+            output.fileExists = false;
+        }
+        output.missing = output.footageMissing || !output.fileExists;
+        return output;
+    }
+
+    function effectPropertySummary(property) {
+        var output = {
+            index: property.propertyIndex,
+            name: property.name,
+            matchName: property.matchName,
+            value: null
+        };
+        try {
+            output.value = safeValue(property.value);
+        } catch (valueError) {
+            output.value = null;
+        }
+        return output;
     }
 
     function keyframeSummary(property, includeKeyframes, maxKeyframes) {
@@ -256,6 +408,291 @@
             output.keyframesTruncated = property.numKeys > count;
         }
         return output;
+    }
+
+    function createComp(args) {
+        var comp = app.project.items.addComp(
+            args.name,
+            args.width,
+            args.height,
+            args.pixelAspect === undefined ? 1 : args.pixelAspect,
+            args.duration,
+            args.frameRate
+        );
+        if (args.bgColor !== undefined && args.bgColor !== null) {
+            comp.bgColor = args.bgColor;
+        }
+        return {operation: "create_comp", comp: compSummary(comp)};
+    }
+
+    function setComp(args) {
+        var comp = resolveComp(args);
+        var changed = [];
+        if (args.name !== undefined && args.name !== null) {
+            comp.name = args.name;
+            changed.push("name");
+        }
+        if (args.width !== undefined && args.width !== null) {
+            comp.width = args.width;
+            changed.push("width");
+        }
+        if (args.height !== undefined && args.height !== null) {
+            comp.height = args.height;
+            changed.push("height");
+        }
+        if (args.pixelAspect !== undefined && args.pixelAspect !== null) {
+            comp.pixelAspect = args.pixelAspect;
+            changed.push("pixelAspect");
+        }
+        if (args.duration !== undefined && args.duration !== null) {
+            comp.duration = args.duration;
+            changed.push("duration");
+        }
+        if (args.frameRate !== undefined && args.frameRate !== null) {
+            comp.frameDuration = 1 / args.frameRate;
+            changed.push("frameRate");
+        }
+        if (args.bgColor !== undefined && args.bgColor !== null) {
+            comp.bgColor = args.bgColor;
+            changed.push("bgColor");
+        }
+        return {
+            operation: "set_comp",
+            changed: changed,
+            comp: compSummary(comp)
+        };
+    }
+
+    function createSolid(args) {
+        var comp = resolveComp(args);
+        var layer = comp.layers.addSolid(
+            args.color,
+            args.name,
+            args.width === undefined ? comp.width : args.width,
+            args.height === undefined ? comp.height : args.height,
+            args.pixelAspect === undefined ? comp.pixelAspect : args.pixelAspect,
+            args.duration === undefined ? comp.duration : args.duration
+        );
+        if (args.position !== undefined && args.position !== null) {
+            transformProperty(layer, "position").setValue(args.position);
+        }
+        return {
+            operation: "create_solid",
+            comp: {id: comp.id, name: comp.name},
+            layer: layerSummary(layer)
+        };
+    }
+
+    function importFootage(args) {
+        var file = new File(args.path);
+        var options;
+        var item;
+        if (!file.exists) {
+            throw new Error("Footage file does not exist: " + file.fsName);
+        }
+        options = new ImportOptions(file);
+        item = app.project.importFile(options);
+        if (!(item instanceof FootageItem)) {
+            try {
+                item.remove();
+            } catch (removeError) {
+            }
+            throw new Error("Imported item is not footage: " + file.fsName);
+        }
+        if (args.name !== undefined && args.name !== null) {
+            item.name = args.name;
+        }
+        return {operation: "import_footage", footage: footageSummary(item)};
+    }
+
+    function addSourceLayer(args) {
+        var comp = resolveComp(args);
+        var item = resolveItem(args, false);
+        var layer;
+        if (!(item instanceof CompItem) && !(item instanceof FootageItem)) {
+            throw new Error("Project item '" + item.name + "' cannot be added as an AV layer.");
+        }
+        layer = comp.layers.add(item);
+        if (args.name !== undefined && args.name !== null) {
+            layer.name = args.name;
+        }
+        if (args.startTime !== undefined && args.startTime !== null) {
+            layer.startTime = args.startTime;
+        }
+        if (args.duration !== undefined && args.duration !== null) {
+            layer.outPoint = layer.startTime + args.duration;
+        }
+        if (args.position !== undefined && args.position !== null) {
+            transformProperty(layer, "position").setValue(args.position);
+        }
+        return {
+            operation: "add_source_layer",
+            comp: {id: comp.id, name: comp.name},
+            item: {id: item.id, name: item.name},
+            layer: layerSummary(layer)
+        };
+    }
+
+    function inspectFootage(args) {
+        return {
+            operation: "inspect_footage",
+            footage: footageSummary(resolveItem(args, true))
+        };
+    }
+
+    function relinkFootage(args) {
+        var item = resolveItem(args, true);
+        var previous = footageSummary(item);
+        var file = new File(args.path);
+        if (!file.exists) {
+            throw new Error("Replacement footage file does not exist: " + file.fsName);
+        }
+        item.replace(file);
+        return {
+            operation: "relink_footage",
+            previous: previous,
+            footage: footageSummary(item)
+        };
+    }
+
+    function addEffect(args) {
+        var comp = resolveComp(args);
+        var layer = resolveLayer(comp, args);
+        var effects = layer.property("ADBE Effect Parade");
+        var effect;
+        if (!effects || !effects.canAddProperty(args.effectMatchName)) {
+            throw new Error("Effect cannot be added: " + args.effectMatchName);
+        }
+        effect = effects.addProperty(args.effectMatchName);
+        if (!effect) {
+            throw new Error("Effect add returned no property: " + args.effectMatchName);
+        }
+        if (args.name !== undefined && args.name !== null) {
+            effect.name = args.name;
+        }
+        return {
+            operation: "add_effect",
+            comp: {id: comp.id, name: comp.name},
+            layer: layerSummary(layer),
+            effect: {
+                index: effect.propertyIndex,
+                name: effect.name,
+                matchName: effect.matchName,
+                enabled: effect.enabled
+            }
+        };
+    }
+
+    function setEffectProperty(args) {
+        var comp = resolveComp(args);
+        var layer = resolveLayer(comp, args);
+        var effect = resolveEffect(layer, args);
+        var property = resolveEffectProperty(effect, args);
+        try {
+            property.setValue(args.value);
+        } catch (error) {
+            throw new Error(
+                "Failed to set effect property '" + property.matchName +
+                "' on '" + effect.name + "': " + error.toString()
+            );
+        }
+        return {
+            operation: "set_effect_property",
+            comp: {id: comp.id, name: comp.name},
+            layer: layerSummary(layer),
+            effect: {
+                index: effect.propertyIndex,
+                name: effect.name,
+                matchName: effect.matchName
+            },
+            property: effectPropertySummary(property)
+        };
+    }
+
+    function removeEffect(args) {
+        var comp = resolveComp(args);
+        var layer = resolveLayer(comp, args);
+        var effect = resolveEffect(layer, args);
+        var removed = {
+            index: effect.propertyIndex,
+            name: effect.name,
+            matchName: effect.matchName
+        };
+        effect.remove();
+        return {
+            operation: "remove_effect",
+            comp: {id: comp.id, name: comp.name},
+            layer: layerSummary(layer),
+            effect: removed
+        };
+    }
+
+    function renderComp(args) {
+        var comp = resolveComp(args);
+        var outputFile = new File(args.outputPath);
+        var queue = app.project.renderQueue;
+        var existing = [];
+        var rqItem = null;
+        var i;
+        var record;
+        var outputModule;
+        var output = null;
+        if (!outputFile.parent.exists) {
+            throw new Error("Output folder does not exist: " + outputFile.parent.fsName);
+        }
+        for (i = 1; i <= queue.numItems; i++) {
+            record = {item: queue.item(i), render: null};
+            try {
+                record.render = record.item.render;
+                record.item.render = false;
+            } catch (snapshotError) {
+                record.render = null;
+            }
+            existing.push(record);
+        }
+        try {
+            rqItem = queue.items.add(comp);
+            if (args.renderSettingsTemplate !== undefined) {
+                rqItem.applyTemplate(args.renderSettingsTemplate);
+            }
+            outputModule = rqItem.outputModule(1);
+            if (args.outputModuleTemplate !== undefined) {
+                outputModule.applyTemplate(args.outputModuleTemplate);
+            }
+            outputModule.file = outputFile;
+            rqItem.render = true;
+            queue.render();
+            output = {
+                path: outputFile.fsName,
+                exists: outputFile.exists,
+                length: outputFile.exists ? outputFile.length : 0,
+                status: String(rqItem.status)
+            };
+        } finally {
+            if (rqItem !== null && args.cleanupQueueItem !== false) {
+                try {
+                    rqItem.remove();
+                } catch (removeQueueError) {
+                }
+            }
+            for (i = 0; i < existing.length; i++) {
+                if (existing[i].render !== null) {
+                    try {
+                        existing[i].item.render = existing[i].render;
+                    } catch (restoreError) {
+                    }
+                }
+            }
+        }
+        if (!output || !output.exists || output.length <= 0) {
+            throw new Error("Render output was not created: " + outputFile.fsName);
+        }
+        return {
+            operation: "render_comp",
+            comp: {id: comp.id, name: comp.name},
+            output: output,
+            queueItemCleaned: args.cleanupQueueItem !== false
+        };
     }
 
     function createText(args) {
@@ -370,18 +807,7 @@
         var comp = resolveComp(args);
         var output = {
             operation: "inspect_comp",
-            comp: {
-                id: comp.id,
-                name: comp.name,
-                width: comp.width,
-                height: comp.height,
-                duration: comp.duration,
-                frameRate: comp.frameRate,
-                numLayers: comp.numLayers,
-                time: comp.time,
-                workAreaStart: comp.workAreaStart,
-                workAreaDuration: comp.workAreaDuration
-            }
+            comp: compSummary(comp)
         };
         var layers;
         var i;
@@ -396,11 +822,19 @@
         return output;
     }
 
+    function openComp(args) {
+        var comp = resolveComp(args);
+        comp.openInViewer();
+        return {operation: "open_comp", comp: compSummary(comp)};
+    }
+
     function inspectLayer(args) {
         var comp = resolveComp(args);
         var layer = resolveLayer(comp, args);
         var includeKeyframes = args.includeKeyframes !== false;
         var maxKeyframes = args.maxKeyframes === undefined ? 50 : args.maxKeyframes;
+        var includeEffectProperties = args.includeEffectProperties === true;
+        var maxEffectProperties = args.maxEffectProperties === undefined ? 50 : args.maxEffectProperties;
         var output = {
             operation: "inspect_layer",
             comp: {id: comp.id, name: comp.name},
@@ -418,6 +852,9 @@
         var masks;
         var mask;
         var i;
+        var j;
+        var effectOutput;
+        var propertyCount;
 
         for (alias in PROPERTY_MATCH_NAMES) {
             try {
@@ -447,12 +884,23 @@
         if (effects) {
             for (i = 1; i <= effects.numProperties; i++) {
                 effect = effects.property(i);
-                output.effects.push({
+                effectOutput = {
                     index: i,
                     name: effect.name,
                     matchName: effect.matchName,
                     enabled: effect.enabled
-                });
+                };
+                if (includeEffectProperties && maxEffectProperties > 0) {
+                    effectOutput.properties = [];
+                    propertyCount = Math.min(effect.numProperties, maxEffectProperties);
+                    for (j = 1; j <= propertyCount; j++) {
+                        effectOutput.properties.push(
+                            effectPropertySummary(effect.property(j))
+                        );
+                    }
+                    effectOutput.propertiesTruncated = effect.numProperties > propertyCount;
+                }
+                output.effects.push(effectOutput);
             }
         }
 
@@ -469,6 +917,28 @@
 
     function runOperation(item) {
         switch (item.operation) {
+            case "create_comp":
+                return createComp(item.args);
+            case "set_comp":
+                return setComp(item.args);
+            case "create_solid":
+                return createSolid(item.args);
+            case "import_footage":
+                return importFootage(item.args);
+            case "add_source_layer":
+                return addSourceLayer(item.args);
+            case "inspect_footage":
+                return inspectFootage(item.args);
+            case "relink_footage":
+                return relinkFootage(item.args);
+            case "add_effect":
+                return addEffect(item.args);
+            case "set_effect_property":
+                return setEffectProperty(item.args);
+            case "remove_effect":
+                return removeEffect(item.args);
+            case "render_comp":
+                return renderComp(item.args);
             case "create_text":
                 return createText(item.args);
             case "set_text":
@@ -479,6 +949,8 @@
                 return setKeyframes(item.args);
             case "inspect_comp":
                 return inspectComp(item.args);
+            case "open_comp":
+                return openComp(item.args);
             case "inspect_layer":
                 return inspectLayer(item.args);
             default:
@@ -487,7 +959,13 @@
     }
 
     function isMutation(operation) {
-        return operation !== "inspect_comp" && operation !== "inspect_layer";
+        return (
+            operation !== "inspect_comp" &&
+            operation !== "inspect_footage" &&
+            operation !== "inspect_layer" &&
+            operation !== "open_comp" &&
+            operation !== "render_comp"
+        );
     }
 
     function normalizeOperations(value) {

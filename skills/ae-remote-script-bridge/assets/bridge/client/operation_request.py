@@ -2,17 +2,41 @@ import json
 
 
 SUPPORTED_OPERATIONS = {
+    "add_effect",
+    "add_source_layer",
+    "create_comp",
+    "create_solid",
     "create_text",
+    "import_footage",
     "inspect_comp",
+    "inspect_footage",
     "inspect_layer",
+    "open_comp",
+    "relink_footage",
+    "remove_effect",
+    "render_comp",
+    "set_comp",
+    "set_effect_property",
     "set_keyframes",
     "set_text",
     "set_transform",
 }
 COMP_SELECTOR_KEYS = {"compId", "compName"}
 LAYER_SELECTOR_KEYS = {"layerId", "layerIndex", "layerName"}
+ITEM_SELECTOR_KEYS = {"itemId", "itemName"}
+EFFECT_SELECTOR_KEYS = {"effectIndex", "effectMatchName", "effectName"}
+EFFECT_PROPERTY_SELECTOR_KEYS = {"propertyIndex", "propertyMatchName"}
 TRANSFORM_KEYS = {"anchorPoint", "opacity", "position", "rotation", "scale"}
 TEXT_STYLE_KEYS = {"alignment", "fillColor", "font", "fontSize"}
+COMP_PROPERTY_KEYS = {
+    "bgColor",
+    "duration",
+    "frameRate",
+    "height",
+    "name",
+    "pixelAspect",
+    "width",
+}
 
 
 class OperationRequestError(ValueError):
@@ -30,6 +54,26 @@ def _is_number(value):
 def _require_number(value, path):
     if not _is_number(value):
         _error(path, "expected a number")
+
+
+def _require_positive_number(value, path, maximum=None):
+    _require_number(value, path)
+    if value <= 0:
+        _error(path, "must be > 0")
+    if maximum is not None and value > maximum:
+        _error(path, "must be <= " + str(maximum))
+
+
+def _require_positive_integer(value, path, maximum=None):
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        _error(path, "expected a positive integer")
+    if maximum is not None and value > maximum:
+        _error(path, "must be <= " + str(maximum))
+
+
+def _require_non_empty_string(value, path):
+    if not isinstance(value, str) or not value:
+        _error(path, "expected a non-empty string")
 
 
 def _reject_unknown(args, allowed, path):
@@ -63,6 +107,40 @@ def _validate_comp_selector(args, path):
         _error(path + ".compName", "expected a non-empty string")
 
 
+def _validate_exact_selector(args, keys, path, labels):
+    present = [key for key in keys if key in args]
+    if len(present) != 1:
+        _error(path, "provide exactly one of " + ", ".join(labels))
+    key = present[0]
+    value = args[key]
+    if key.endswith("Id") or key.endswith("Index"):
+        _require_positive_integer(value, path + "." + key)
+    else:
+        _require_non_empty_string(value, path + "." + key)
+
+
+def _validate_item_selector(args, path):
+    _validate_exact_selector(args, ITEM_SELECTOR_KEYS, path, ("itemId", "itemName"))
+
+
+def _validate_effect_selector(args, path):
+    _validate_exact_selector(
+        args,
+        EFFECT_SELECTOR_KEYS,
+        path,
+        ("effectIndex", "effectMatchName", "effectName"),
+    )
+
+
+def _validate_effect_property_selector(args, path):
+    _validate_exact_selector(
+        args,
+        EFFECT_PROPERTY_SELECTOR_KEYS,
+        path,
+        ("propertyIndex", "propertyMatchName"),
+    )
+
+
 def _validate_layer_selector(args, path):
     present = [key for key in LAYER_SELECTOR_KEYS if key in args]
     if len(present) != 1:
@@ -76,6 +154,24 @@ def _validate_layer_selector(args, path):
         _error(path + ".layerName", "expected a non-empty string")
 
 
+def _validate_comp_properties(args, path, require_change):
+    changed = COMP_PROPERTY_KEYS.intersection(args)
+    if require_change and not changed:
+        _error(path, "provide at least one composition property")
+    if "name" in args:
+        _require_non_empty_string(args["name"], path + ".name")
+    for key in {"width", "height"}.intersection(changed):
+        _require_positive_integer(args[key], path + "." + key, 30000)
+    if "duration" in args:
+        _require_positive_number(args["duration"], path + ".duration", 10800)
+    if "frameRate" in args:
+        _require_positive_number(args["frameRate"], path + ".frameRate", 240)
+    if "pixelAspect" in args:
+        _require_positive_number(args["pixelAspect"], path + ".pixelAspect", 100)
+    if "bgColor" in args:
+        _validate_vector(args["bgColor"], path + ".bgColor", (3,), 0, 1)
+
+
 def _validate_text_style(args, path):
     if "fontSize" in args:
         _require_number(args["fontSize"], path + ".fontSize")
@@ -87,6 +183,148 @@ def _validate_text_style(args, path):
         _error(path + ".alignment", "expected left, center, or right")
     if "font" in args and not isinstance(args["font"], str):
         _error(path + ".font", "expected a string")
+
+
+def _validate_create_comp(args, path):
+    _reject_unknown(args, COMP_PROPERTY_KEYS, path)
+    required = {"name", "width", "height", "duration", "frameRate"}
+    missing = sorted(required.difference(args))
+    if missing:
+        _error(path, "missing required field(s): " + ", ".join(missing))
+    _validate_comp_properties(args, path, True)
+
+
+def _validate_set_comp(args, path):
+    _reject_unknown(args, COMP_SELECTOR_KEYS | COMP_PROPERTY_KEYS, path)
+    _validate_comp_selector(args, path)
+    _validate_comp_properties(args, path, True)
+
+
+def _validate_create_solid(args, path):
+    _reject_unknown(
+        args,
+        COMP_SELECTOR_KEYS
+        | {"color", "duration", "height", "name", "pixelAspect", "position", "width"},
+        path,
+    )
+    _validate_comp_selector(args, path)
+    _require_non_empty_string(args.get("name"), path + ".name")
+    if "color" not in args:
+        _error(path + ".color", "expected an array with length 3")
+    _validate_vector(args["color"], path + ".color", (3,), 0, 1)
+    for key in {"width", "height"}.intersection(args):
+        _require_positive_integer(args[key], path + "." + key, 30000)
+    if "duration" in args:
+        _require_positive_number(args["duration"], path + ".duration", 10800)
+    if "pixelAspect" in args:
+        _require_positive_number(args["pixelAspect"], path + ".pixelAspect", 100)
+    if "position" in args:
+        _validate_vector(args["position"], path + ".position", (2, 3))
+
+
+def _validate_import_footage(args, path):
+    _reject_unknown(args, {"name", "path"}, path)
+    _require_non_empty_string(args.get("path"), path + ".path")
+    if "name" in args:
+        _require_non_empty_string(args["name"], path + ".name")
+
+
+def _validate_add_source_layer(args, path):
+    _reject_unknown(
+        args,
+        COMP_SELECTOR_KEYS
+        | ITEM_SELECTOR_KEYS
+        | {"duration", "name", "position", "startTime"},
+        path,
+    )
+    _validate_comp_selector(args, path)
+    _validate_item_selector(args, path)
+    if "name" in args:
+        _require_non_empty_string(args["name"], path + ".name")
+    if "startTime" in args:
+        _require_number(args["startTime"], path + ".startTime")
+    if "duration" in args:
+        _require_positive_number(args["duration"], path + ".duration")
+    if "position" in args:
+        _validate_vector(args["position"], path + ".position", (2, 3))
+
+
+def _validate_inspect_footage(args, path):
+    _reject_unknown(args, ITEM_SELECTOR_KEYS, path)
+    _validate_item_selector(args, path)
+
+
+def _validate_relink_footage(args, path):
+    _reject_unknown(args, ITEM_SELECTOR_KEYS | {"path"}, path)
+    _validate_item_selector(args, path)
+    _require_non_empty_string(args.get("path"), path + ".path")
+
+
+def _validate_add_effect(args, path):
+    _reject_unknown(
+        args,
+        COMP_SELECTOR_KEYS | LAYER_SELECTOR_KEYS | {"effectMatchName", "name"},
+        path,
+    )
+    _validate_comp_selector(args, path)
+    _validate_layer_selector(args, path)
+    _require_non_empty_string(args.get("effectMatchName"), path + ".effectMatchName")
+    if "name" in args:
+        _require_non_empty_string(args["name"], path + ".name")
+
+
+def _validate_set_effect_property(args, path):
+    _reject_unknown(
+        args,
+        COMP_SELECTOR_KEYS
+        | LAYER_SELECTOR_KEYS
+        | EFFECT_SELECTOR_KEYS
+        | EFFECT_PROPERTY_SELECTOR_KEYS
+        | {"value"},
+        path,
+    )
+    _validate_comp_selector(args, path)
+    _validate_layer_selector(args, path)
+    _validate_effect_selector(args, path)
+    _validate_effect_property_selector(args, path)
+    if "value" not in args:
+        _error(path + ".value", "is required")
+    value = args["value"]
+    if isinstance(value, list):
+        _validate_vector(value, path + ".value", (1, 2, 3, 4))
+    elif not (_is_number(value) or isinstance(value, (bool, str))):
+        _error(path + ".value", "expected a scalar or numeric array")
+
+
+def _validate_remove_effect(args, path):
+    _reject_unknown(
+        args,
+        COMP_SELECTOR_KEYS | LAYER_SELECTOR_KEYS | EFFECT_SELECTOR_KEYS,
+        path,
+    )
+    _validate_comp_selector(args, path)
+    _validate_layer_selector(args, path)
+    _validate_effect_selector(args, path)
+
+
+def _validate_render_comp(args, path):
+    _reject_unknown(
+        args,
+        COMP_SELECTOR_KEYS
+        | {
+            "cleanupQueueItem",
+            "outputModuleTemplate",
+            "outputPath",
+            "renderSettingsTemplate",
+        },
+        path,
+    )
+    _validate_comp_selector(args, path)
+    _require_non_empty_string(args.get("outputPath"), path + ".outputPath")
+    for key in {"renderSettingsTemplate", "outputModuleTemplate"}.intersection(args):
+        _require_non_empty_string(args[key], path + "." + key)
+    if "cleanupQueueItem" in args and not isinstance(args["cleanupQueueItem"], bool):
+        _error(path + ".cleanupQueueItem", "expected a boolean")
 
 
 def _validate_create_text(args, path):
@@ -186,28 +424,58 @@ def _validate_inspect_comp(args, path):
         _error(path + ".includeLayers", "expected a boolean")
 
 
+def _validate_open_comp(args, path):
+    _reject_unknown(args, COMP_SELECTOR_KEYS, path)
+    _validate_comp_selector(args, path)
+
+
 def _validate_inspect_layer(args, path):
     _reject_unknown(
         args,
         COMP_SELECTOR_KEYS
         | LAYER_SELECTOR_KEYS
-        | {"includeKeyframes", "maxKeyframes"},
+        | {
+            "includeEffectProperties",
+            "includeKeyframes",
+            "maxEffectProperties",
+            "maxKeyframes",
+        },
         path,
     )
     _validate_comp_selector(args, path)
     _validate_layer_selector(args, path)
     if "includeKeyframes" in args and not isinstance(args["includeKeyframes"], bool):
         _error(path + ".includeKeyframes", "expected a boolean")
+    if "includeEffectProperties" in args and not isinstance(
+        args["includeEffectProperties"], bool
+    ):
+        _error(path + ".includeEffectProperties", "expected a boolean")
     if "maxKeyframes" in args:
         value = args["maxKeyframes"]
         if not isinstance(value, int) or isinstance(value, bool) or value < 0 or value > 200:
             _error(path + ".maxKeyframes", "expected an integer from 0 to 200")
+    if "maxEffectProperties" in args:
+        value = args["maxEffectProperties"]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0 or value > 200:
+            _error(path + ".maxEffectProperties", "expected an integer from 0 to 200")
 
 
 VALIDATORS = {
+    "add_effect": _validate_add_effect,
+    "add_source_layer": _validate_add_source_layer,
+    "create_comp": _validate_create_comp,
+    "create_solid": _validate_create_solid,
     "create_text": _validate_create_text,
+    "import_footage": _validate_import_footage,
     "inspect_comp": _validate_inspect_comp,
+    "inspect_footage": _validate_inspect_footage,
     "inspect_layer": _validate_inspect_layer,
+    "open_comp": _validate_open_comp,
+    "relink_footage": _validate_relink_footage,
+    "remove_effect": _validate_remove_effect,
+    "render_comp": _validate_render_comp,
+    "set_comp": _validate_set_comp,
+    "set_effect_property": _validate_set_effect_property,
     "set_keyframes": _validate_set_keyframes,
     "set_text": _validate_set_text,
     "set_transform": _validate_set_transform,
@@ -241,6 +509,14 @@ def validate_request(request):
         if not isinstance(item["args"], dict):
             _error(path + ".args", "expected an object")
         VALIDATORS[operation](item["args"], path + ".args")
+
+    if len(operations) > 1 and any(
+        item["operation"] == "render_comp" for item in operations
+    ):
+        _error(
+            "request.operations",
+            "render_comp must run as a standalone request",
+        )
 
     return request
 

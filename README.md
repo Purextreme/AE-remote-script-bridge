@@ -20,7 +20,7 @@ C:\Users\<user>\.codex\skills\ae-remote-script-bridge
 - 素材替换和 Render Queue 等高风险任务卡片
 - 原生 Shape Layer 图标与 UI 动画任务卡和集成测试
 - 可复用的 JSX 模板
-- 不依赖 MCP/CEP 的高频 typed operations（文字、Transform、keyframe、inspect、batch）
+- 不依赖 MCP/CEP 的高频 typed operations（合成、文字、素材、Transform、keyframe、效果、输出、inspect、batch）
 
 bridge 不需要硬编码 AE 路径。它会按顺序从 `--afterfx`、`AFTERFX_COM_PATH`、可选的本地 `config.json`，或 `C:\Program Files\Adobe` 下的自动发现结果解析 `AfterFX.com`。
 
@@ -52,7 +52,15 @@ python client\run_operation.py examples\operations\text_batch.json --operation-i
 python client\run_operation.py examples\operations\inspect_active_comp.json --no-protect
 ```
 
-当前支持创建/替换文字、修改 Transform、设置 Transform keyframe、inspect comp/layer，以及单次往返内的连续 batch。名称选择器必须唯一；同名 layer 会返回明确错误，不会静默选中第一个。参数会先在 Python 端验证，详细结果写入当前 run 的 `result.json.payload`。
+当前还支持创建/修改/打开合成、Solid/source layer、素材导入与显式重链、Fill/Tint 等内置效果参数，以及隔离 Render Queue 的短输出。名称选择器必须唯一；同名 target 会返回明确错误，不会静默选中第一个。参数会先在 Python 端验证，详细结果写入当前 run 的 `result.json.payload`。
+
+在一次性测试工程中可运行轻量生产验收套件：
+
+```bat
+python client\run_production_tests.py --fixture-a "D:\path\source_a.png" --fixture-b "D:\path\source_b.png" --render
+```
+
+它会复制 fixture，验证正向/负向/batch/显式重链/视觉预览/短输出并按本次 Run 前缀清理。不会搜索替换文件或自动重链。
 
 该能力只使用 Python 标准库和 ExtendScript，未引入 MCP SDK、CEP panel 或常驻 server。原始 `client\send_to_ae.py <script.jsx>` 仍是完整 escape hatch。完整参数契约、batch 失败语义与开源来源见 `assets\bridge\operations\README.md` 和 `THIRD_PARTY_NOTICES.md`。
 

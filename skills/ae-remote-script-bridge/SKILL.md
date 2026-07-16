@@ -70,7 +70,8 @@ or with an explicit AE path:
 python client\send_to_ae.py --afterfx "C:\path\to\AfterFX.com" scripts\your_script.jsx
 ```
 
-For common text, Transform, keyframe, and inspection work, prefer the bundled
+For common composition, text, footage, Transform, keyframe, effect, output,
+and inspection work, prefer the bundled
 stable operation interface over authoring repetitive JSX:
 
 ```bat
@@ -79,13 +80,23 @@ python client\run_operation.py examples\operations\text_batch.json --operation-i
 python client\run_operation.py examples\operations\inspect_active_comp.json --no-protect
 ```
 
-Requests are validated before AE runs. Supported operations are `create_text`,
-`set_text`, `set_transform`, `set_keyframes`, `inspect_comp`, and
-`inspect_layer`; a top-level `operations` array batches up to 50 calls into one
-bridge round trip and one undo group. Read
+Requests are validated before AE runs. The stable surface covers composition
+create/update/open, text, Solid/source layers, explicit footage import/relink,
+Transform/keyframes, effects, bounded inspection, and isolated output. A
+top-level `operations` array batches up to 50 non-render calls into one bridge
+round trip and one undo group. Read
 `assets/bridge/operations/README.md` for the exact JSON contract, strict target
 selectors, and partial-batch failure semantics. Keep `send_to_ae.py` as the raw
 JSX escape hatch for work outside this deliberately small surface.
+
+Run the production acceptance suite only in a disposable project:
+
+```bat
+python client\run_production_tests.py --fixture-a "D:\path\source_a.png" --fixture-b "D:\path\source_b.png" --render
+```
+
+Footage relink is always explicit: the caller provides one replacement path.
+Do not search the disk, choose candidates, or automatically relink footage.
 
 Use `--timeout-seconds <seconds>` when a deliberate long-running operation needs more than the default 60-second limit. A timeout stops the client wait but cannot guarantee that AE stopped an already-running JSX. After a timeout, treat project state as unknown; wait for AE to respond and run a read-only inspection before any further mutation.
 
