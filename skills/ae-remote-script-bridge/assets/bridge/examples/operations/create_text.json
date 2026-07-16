@@ -1,0 +1,11 @@
+{
+  "operation": "create_text",
+  "args": {
+    "text": "AE Bridge Operations",
+    "name": "Bridge Ops Title",
+    "position": [960, 540],
+    "fontSize": 96,
+    "fillColor": [1, 0.8, 0.2],
+    "alignment": "center"
+  }
+}

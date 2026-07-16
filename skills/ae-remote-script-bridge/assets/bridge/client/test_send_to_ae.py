@@ -36,6 +36,22 @@ class BridgeClientTests(unittest.TestCase):
                         "current",
                     )
 
+    def test_wrapper_includes_structured_payload_when_target_sets_it(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            target_path = temp_path / "target.jsx"
+            target_path.write_text("(function () {})();", encoding="utf-8")
+            run_context = create_run_context(temp_path)
+
+            wrapper = send_to_ae.build_wrapper_jsx(target_path, run_context)
+
+            self.assertIn("$.global.AE_BRIDGE_PAYLOAD_JSON = null", wrapper)
+            self.assertIn("',\"payload\":' + normalizedPayload", wrapper)
+            self.assertIn(
+                "writeResult(true, \"Script executed successfully.\", null, $.global.AE_BRIDGE_PAYLOAD_JSON)",
+                wrapper,
+            )
+
     def test_subprocess_timeout_is_reported(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             result_path = Path(temp_dir) / "result.json"

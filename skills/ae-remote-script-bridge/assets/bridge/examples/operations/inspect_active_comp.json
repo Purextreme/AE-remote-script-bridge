@@ -1,0 +1,6 @@
+{
+  "operation": "inspect_comp",
+  "args": {
+    "includeLayers": true
+  }
+}

@@ -20,6 +20,7 @@ C:\Users\<user>\.codex\skills\ae-remote-script-bridge
 - 素材替换和 Render Queue 等高风险任务卡片
 - 原生 Shape Layer 图标与 UI 动画任务卡和集成测试
 - 可复用的 JSX 模板
+- 不依赖 MCP/CEP 的高频 typed operations（文字、Transform、keyframe、inspect、batch）
 
 bridge 不需要硬编码 AE 路径。它会按顺序从 `--afterfx`、`AFTERFX_COM_PATH`、可选的本地 `config.json`，或 `C:\Program Files\Adobe` 下的自动发现结果解析 `AfterFX.com`。
 
@@ -39,6 +40,21 @@ bridge 不需要硬编码 AE 路径。它会按顺序从 `--afterfx`、`AFTERFX_
 保护状态在 24 小时后自动过期。每次命令使用独立的 `logs\runs\<Run ID>\` 目录保存结果、报告、包装 JSX 和预览文件，滚动保留最近 10 次运行。
 
 `--timeout-seconds` 限制客户端等待时间，但不能保证 AE 已停止内部正在执行的 JSX。超时后应先等待 AE 恢复响应并执行只读检查，再继续修改工程。
+
+## 稳定 Operations
+
+高频操作可以通过 JSON 参数调用，不需要 agent 每次现场重写 JSX：
+
+```bat
+cd skills\ae-remote-script-bridge\assets\bridge
+python client\run_operation.py examples\operations\create_text.json --operation-id my-task
+python client\run_operation.py examples\operations\text_batch.json --operation-id my-task --capture-frame --capture-time 1
+python client\run_operation.py examples\operations\inspect_active_comp.json --no-protect
+```
+
+当前支持创建/替换文字、修改 Transform、设置 Transform keyframe、inspect comp/layer，以及单次往返内的连续 batch。名称选择器必须唯一；同名 layer 会返回明确错误，不会静默选中第一个。参数会先在 Python 端验证，详细结果写入当前 run 的 `result.json.payload`。
+
+该能力只使用 Python 标准库和 ExtendScript，未引入 MCP SDK、CEP panel 或常驻 server。原始 `client\send_to_ae.py <script.jsx>` 仍是完整 escape hatch。完整参数契约、batch 失败语义与开源来源见 `assets\bridge\operations\README.md` 和 `THIRD_PARTY_NOTICES.md`。
 
 ## 画面检查
 

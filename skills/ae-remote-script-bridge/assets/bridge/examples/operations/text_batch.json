@@ -1,0 +1,49 @@
+{
+  "operations": [
+    {
+      "operation": "create_text",
+      "args": {
+        "text": "Batch v1",
+        "name": "Bridge Batch Title",
+        "position": [420, 540],
+        "fontSize": 72
+      }
+    },
+    {
+      "operation": "set_text",
+      "args": {
+        "layerName": "Bridge Batch Title",
+        "text": "Batch v2"
+      }
+    },
+    {
+      "operation": "set_transform",
+      "args": {
+        "layerName": "Bridge Batch Title",
+        "position": [960, 540],
+        "scale": [110, 110],
+        "rotation": 8
+      }
+    },
+    {
+      "operation": "set_keyframes",
+      "args": {
+        "layerName": "Bridge Batch Title",
+        "property": "opacity",
+        "clearExisting": true,
+        "keyframes": [
+          {"time": 0, "value": 0},
+          {"time": 1, "value": 100}
+        ]
+      }
+    },
+    {
+      "operation": "inspect_layer",
+      "args": {
+        "layerName": "Bridge Batch Title",
+        "includeKeyframes": true,
+        "maxKeyframes": 20
+      }
+    }
+  ]
+}

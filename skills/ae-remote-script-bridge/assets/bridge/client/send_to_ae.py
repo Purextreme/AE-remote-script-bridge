@@ -152,6 +152,7 @@ def build_wrapper_jsx(target_jsx, run_context):
     $.global.AE_BRIDGE_LOGS_DIR = "%s";
     $.global.AE_BRIDGE_TEMP_DIR = "%s";
     $.global.AE_BRIDGE_RESULT_PATH = "%s";
+    $.global.AE_BRIDGE_PAYLOAD_JSON = null;
 
     function escapeJson(value) {
         var text = String(value);
@@ -163,7 +164,16 @@ def build_wrapper_jsx(target_jsx, run_context):
         return text;
     }
 
-    function writeResult(ok, message, line) {
+    function writeResult(ok, message, line, payloadJson) {
+        var normalizedPayload = null;
+        if (payloadJson !== null && payloadJson !== undefined && payloadJson !== "") {
+            try {
+                JSON.parse(payloadJson);
+                normalizedPayload = payloadJson;
+            } catch (payloadError) {
+                normalizedPayload = '"' + escapeJson(payloadJson) + '"';
+            }
+        }
         resultFile.encoding = "UTF-8";
         resultFile.open("w");
         resultFile.write("{");
@@ -173,15 +183,18 @@ def build_wrapper_jsx(target_jsx, run_context):
         if (line !== null && line !== undefined) {
             resultFile.write(',"line":' + line);
         }
+        if (normalizedPayload !== null) {
+            resultFile.write(',"payload":' + normalizedPayload);
+        }
         resultFile.write("}");
         resultFile.close();
     }
 
     try {
         $.evalFile(targetFile);
-        writeResult(true, "Script executed successfully.", null);
+        writeResult(true, "Script executed successfully.", null, $.global.AE_BRIDGE_PAYLOAD_JSON);
     } catch (err) {
-        writeResult(false, err.toString(), err.line);
+        writeResult(false, err.toString(), err.line, $.global.AE_BRIDGE_PAYLOAD_JSON);
     }
 })();""" % (
         target_path,
@@ -682,6 +695,9 @@ def main():
     if result.get("ok"):
         print("[AE OK]")
         print(result.get("message", "Script executed successfully."))
+        if "payload" in result:
+            print("[AE PAYLOAD]")
+            print(json.dumps(result["payload"], ensure_ascii=False, indent=2))
         print_stage_diagnostics(result)
 
         if args.capture_frame:
@@ -803,6 +819,9 @@ def main():
 
     print("[AE ERROR]")
     print(result.get("message", "Unknown AE script error."))
+    if "payload" in result:
+        print("[AE PAYLOAD]")
+        print(json.dumps(result["payload"], ensure_ascii=False, indent=2))
     if "line" in result:
         print("Line: " + str(result["line"]))
     print_stage_diagnostics(result)

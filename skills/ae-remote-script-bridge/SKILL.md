@@ -17,6 +17,9 @@ Use bundled templates from `assets/templates/` when they fit the task:
 - `add_text_layer.jsx`
 - `add_position_keyframes.jsx`
 
+For the evaluated MCP/agent alternatives, adopted operation boundary, and live
+comparison data, read `references/open_source_evaluation.md`.
+
 Do not load long external docs unless the local reference marks an area `needs_verify`, the API is version-sensitive, or AE returns repeated errors.
 
 ## Bridge Setup
@@ -66,6 +69,23 @@ or with an explicit AE path:
 ```bat
 python client\send_to_ae.py --afterfx "C:\path\to\AfterFX.com" scripts\your_script.jsx
 ```
+
+For common text, Transform, keyframe, and inspection work, prefer the bundled
+stable operation interface over authoring repetitive JSX:
+
+```bat
+python client\run_operation.py examples\operations\create_text.json --operation-id current-task
+python client\run_operation.py examples\operations\text_batch.json --operation-id current-task --capture-frame --capture-time 1
+python client\run_operation.py examples\operations\inspect_active_comp.json --no-protect
+```
+
+Requests are validated before AE runs. Supported operations are `create_text`,
+`set_text`, `set_transform`, `set_keyframes`, `inspect_comp`, and
+`inspect_layer`; a top-level `operations` array batches up to 50 calls into one
+bridge round trip and one undo group. Read
+`assets/bridge/operations/README.md` for the exact JSON contract, strict target
+selectors, and partial-batch failure semantics. Keep `send_to_ae.py` as the raw
+JSX escape hatch for work outside this deliberately small surface.
 
 Use `--timeout-seconds <seconds>` when a deliberate long-running operation needs more than the default 60-second limit. A timeout stops the client wait but cannot guarantee that AE stopped an already-running JSX. After a timeout, treat project state as unknown; wait for AE to respond and run a read-only inspection before any further mutation.
 
@@ -191,12 +211,12 @@ Write reports to `$.global.AE_BRIDGE_LOGS_DIR` and temporary outputs to `$.globa
 
 ## Built-In Bridge Checks
 
-Run the Python unit tests from any bridge checkout. Run the AE commands only after opening a disposable test project. They create and remove project items, and `ae_test_integration_ops.jsx` renders and saves the current project into the run's temporary directory, changing its current save path. Never run these AE checks against a working project.
+Run the Python unit tests from any bridge checkout. Run the AE commands only after opening a disposable test project. They create and remove project items, and `ae_test_integration_ops.jsx` renders and saves the current project into the run's temporary directory, changing its current save path. Never run these AE checks against a working project. After this integration check, immediately save the disposable project to a stable path or close it: run directories are rotated, and leaving AE open on a removed run path can make Auto-Save show a modal error that blocks later scripts.
 
 Use these from the bridge root:
 
 ```bat
-python -m unittest discover -s client -p test_send_to_ae.py
+python -m unittest discover -s client -p "test_*.py"
 python client\send_to_ae.py --no-protect scripts\ae_test_create_comp.jsx
 python client\send_to_ae.py --no-protect scripts\ae_test_modify_active_comp.jsx
 python client\send_to_ae.py --no-protect scripts\ae_test_error.jsx
@@ -204,4 +224,11 @@ python client\send_to_ae.py --no-protect scripts\ae_test_integration_ops.jsx
 python client\send_to_ae.py --no-protect scripts\ae_test_shape_ui.jsx --capture-frame --capture-method render-queue --capture-time 1
 python client\send_to_ae.py --no-protect scripts\ae_test_smooth_curves.jsx --capture-frame --capture-time 1
 python client\send_to_ae.py --no-protect scripts\ae_inspect_project.jsx
+```
+
+To exercise timeout recovery, run the following as an expected failure, then
+immediately perform the read-only inspection shown above:
+
+```bat
+python client\send_to_ae.py --no-protect --timeout-seconds 0.25 scripts\ae_test_timeout.jsx
 ```
