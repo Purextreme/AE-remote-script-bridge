@@ -22,6 +22,14 @@ comparison data, read `references/open_source_evaluation.md`.
 
 Do not load long external docs unless the local reference marks an area `needs_verify`, the API is version-sensitive, or AE returns repeated errors.
 
+## Improvement Queue
+
+During real AE work, append newly discovered reusable experience to `improvement.md` beside this `SKILL.md` after the main task is safe and verified. Record only behavior supported by a concrete error, warning, command, or run artifact and not already present in that queue.
+
+Read the queue before appending. Add one concise `pending review` entry using its template; do not rewrite existing entries or promote a candidate into `SKILL.md`, references, task cards, or bridge code without maintainer review. Never record secrets, private asset contents, or unnecessary machine identifiers.
+
+The optional bridge-local `assets/bridge/config.json` may set `improvement_queue_path`. When configured, use that file instead of the default queue. Resolve a relative configured path from the directory containing `config.json`; absolute paths are allowed only as machine-local configuration and must not be written into tracked Skill instructions. If the configured path is missing, invalid, or not writable, fall back to `improvement.md` beside this `SKILL.md` and tell the user which queue received the entry. Experience logging must not interrupt recovery from an AE error or delay the user's primary task.
+
 ## Bridge Setup
 
 Prefer an existing workspace bridge when it contains:
