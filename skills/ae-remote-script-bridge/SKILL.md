@@ -24,15 +24,15 @@ Do not load long external docs unless the local reference marks an area `needs_v
 
 ## Improvement Queue
 
-During real AE work, append newly discovered reusable experience to `improvement.md` beside this `SKILL.md` after the main task is safe and verified. Record only behavior supported by a concrete error, warning, command, or run artifact and not already present in that queue.
+During real AE work, record newly discovered reusable experience as one new Markdown file under `improvements/pending/` after the main task is safe and verified. Record only behavior supported by a concrete error, warning, command, or run artifact.
 
-Read the queue before appending. Add one concise `pending review` entry using its template; do not rewrite existing entries or promote a candidate into `SKILL.md`, references, task cards, or bridge code without maintainer review. Never record secrets, private asset contents, or unnecessary machine identifiers.
+Before recording, read only `improvements/RULES.md`; do not list, search, or read existing pending entries. Follow its filename convention and entry template. Do not rewrite another entry or promote a candidate into `SKILL.md`, references, task cards, or bridge code without maintainer review. Only inspect the pending entries when the maintainer explicitly requests queue review or absorption.
 
-The optional bridge-local `assets/bridge/config.json` may set `improvement_queue_path`. When configured, use that file instead of the default queue. Resolve a relative configured path from the directory containing `config.json`; absolute paths are allowed only as machine-local configuration and must not be written into tracked Skill instructions. If the configured path is missing, invalid, or not writable, fall back to `improvement.md` beside this `SKILL.md` and tell the user which queue received the entry. Experience logging must not interrupt recovery from an AE error or delay the user's primary task.
+The optional bridge-local `assets/bridge/config.json` may set `improvement_queue_dir`. When configured, write new entries under its `pending/` subdirectory instead of the default queue. Resolve a relative configured path from the directory containing `config.json`; absolute paths are allowed only as machine-local configuration and must not be written into tracked Skill instructions. The recording rules always come from the bundled `improvements/RULES.md`. If the configured directory is missing, invalid, or not writable, fall back to the default `improvements/pending/` directory beside this `SKILL.md` and tell the user which queue received the entry. Experience logging must not interrupt recovery from an AE error or delay the user's primary task.
 
 ## Bridge Setup
 
-Prefer an existing workspace bridge when it contains:
+Run the bundled bridge directly from `assets/bridge/` beside this `SKILL.md`:
 
 ```text
 client/send_to_ae.py
@@ -41,18 +41,50 @@ logs/
 temp/
 ```
 
-If the workspace does not contain a bridge, copy `assets/bridge/` from this skill into the workspace. The copied directory contains all code needed for JSX sending and project protection; those core paths use only the Python standard library.
+Do not copy the bridge or its configuration into the workspace. Target JSX and
+operation JSON files may live in the workspace and be passed by absolute path.
+The bundled bridge contains all code needed for JSX sending and project
+protection; its core paths use only the Python standard library.
 
 The bridge uses `AfterFX.com -r`, not `AfterFX.exe -r`.
+
+The Skill targets AE 2024 as its default compatibility baseline. On first use,
+run this from the bundled bridge root:
+
+```bat
+python client\configure_afterfx.py
+```
+
+This command reads the Skill-local `config.json`. If its `afterfx_com_path` is
+valid, use it. If no valid path is configured, it searches under
+`C:\Program Files\Adobe`:
+
+- If exactly one installation is found, it saves that `AfterFX.com` path to the
+  Skill-local `config.json` automatically.
+- If multiple installations are found, ask the user which version to use. Do
+  not choose one silently. Then save the selected candidate with:
+
+  ```bat
+  python client\configure_afterfx.py --afterfx "C:\path\to\AfterFX.com"
+  ```
+
+- If none are found, ask the user for the `AfterFX.com` path and save it with
+  the same command.
+
+The Skill-local `config.json` is machine-specific, reused for every workspace,
+and must remain untracked. Preserve it when updating or reinstalling the Skill.
+The configuration command keeps unrelated fields already present in that file.
 
 `client/send_to_ae.py` resolves `AfterFX.com` in this order:
 
 1. `--afterfx "C:\path\to\AfterFX.com"`
 2. `AFTERFX_COM_PATH`
 3. optional bridge-local `config.json` with `afterfx_com_path`
-4. automatic search under `C:\Program Files\Adobe\Adobe After Effects *\Support Files\AfterFX.com`
+4. automatic first-use discovery under `C:\Program Files\Adobe\Adobe After Effects *\Support Files\AfterFX.com`
 
-If automatic discovery fails, create a bridge-local `config.json` based on `config.example.json` or pass `--afterfx`.
+When first-use discovery finds one installation, the bridge persists it. When
+it finds multiple installations, it stops and reports every candidate so Codex
+can ask the user before configuring one.
 
 ## Optional Preview Dependencies
 

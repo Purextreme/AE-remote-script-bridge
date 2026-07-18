@@ -184,8 +184,8 @@ class BridgeClientTests(unittest.TestCase):
                 ) as load_config:
                     with patch.object(
                         send_to_ae,
-                        "find_afterfx_com",
-                        return_value=discovered_path,
+                        "find_afterfx_com_candidates",
+                        return_value=[discovered_path],
                     ) as discover:
                         self.assertEqual(
                             env_path,
@@ -202,14 +202,77 @@ class BridgeClientTests(unittest.TestCase):
                 ):
                     with patch.object(
                         send_to_ae,
-                        "find_afterfx_com",
-                        return_value=discovered_path,
+                        "find_afterfx_com_candidates",
+                        return_value=[discovered_path],
                     ) as discover:
                         self.assertEqual(
                             config_path,
                             send_to_ae.resolve_afterfx_path(None),
                         )
                         discover.assert_not_called()
+
+    def test_single_discovered_afterfx_is_saved_in_skill_config(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config_path = temp_path / "config.json"
+            discovered_path = temp_path / "Adobe After Effects 2024" / "AfterFX.com"
+            discovered_path.parent.mkdir()
+            discovered_path.write_bytes(b"")
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "afterfx_com_path": str(
+                            temp_path / "missing" / "AfterFX.com"
+                        ),
+                        "improvement_queue_dir": "review",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.dict(send_to_ae.os.environ, {}, clear=True):
+                with patch.object(send_to_ae, "CONFIG_PATH", config_path):
+                    with patch.object(
+                        send_to_ae,
+                        "find_afterfx_com_candidates",
+                        return_value=[discovered_path],
+                    ):
+                        resolved_path = send_to_ae.resolve_afterfx_path(None)
+
+            self.assertEqual(discovered_path.resolve(), resolved_path)
+            saved_config = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual("review", saved_config["improvement_queue_dir"])
+            self.assertEqual(
+                str(discovered_path.resolve()),
+                saved_config["afterfx_com_path"],
+            )
+
+    def test_multiple_discovered_afterfx_versions_require_user_choice(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config_path = temp_path / "config.json"
+            ae_2025 = temp_path / "Adobe After Effects 2025" / "AfterFX.com"
+            ae_2024 = temp_path / "Adobe After Effects 2024" / "AfterFX.com"
+            for path in [ae_2025, ae_2024]:
+                path.parent.mkdir()
+                path.write_bytes(b"")
+
+            with patch.dict(send_to_ae.os.environ, {}, clear=True):
+                with patch.object(send_to_ae, "CONFIG_PATH", config_path):
+                    with patch.object(
+                        send_to_ae,
+                        "find_afterfx_com_candidates",
+                        return_value=[ae_2025, ae_2024],
+                    ):
+                        with self.assertRaisesRegex(
+                            RuntimeError,
+                            "Multiple After Effects installations found",
+                        ) as error:
+                            send_to_ae.resolve_afterfx_path(None)
+
+            self.assertIn(str(ae_2025), str(error.exception))
+            self.assertIn(str(ae_2024), str(error.exception))
+            self.assertFalse(config_path.exists())
 
     def test_backup_rotation_keeps_latest_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:

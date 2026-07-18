@@ -1,4 +1,4 @@
 {
-  "afterfx_com_path": "C:\\path\\to\\Adobe After Effects\\Support Files\\AfterFX.com",
-  "improvement_queue_path": "C:\\path\\to\\review\\improvement.md"
+  "afterfx_com_path": "C:\\Program Files\\Adobe\\Adobe After Effects 2024\\Support Files\\AfterFX.com",
+  "improvement_queue_dir": "C:\\path\\to\\review\\improvements"
 }

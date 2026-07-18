@@ -61,17 +61,39 @@ def write_text_file(path, text):
     path.write_text(text, encoding="utf-8")
 
 
-def load_config_afterfx_path():
+def load_config():
     if not CONFIG_PATH.exists():
-        return None
+        return {}
     with CONFIG_PATH.open("r", encoding="utf-8") as config_file:
         config = json.load(config_file)
+    if not isinstance(config, dict):
+        raise ValueError("config.json must contain a JSON object.")
+    return config
+
+
+def load_config_afterfx_path():
+    config = load_config()
     afterfx_com_path = config.get("afterfx_com_path")
     if afterfx_com_path:
         return Path(afterfx_com_path)
-    if config:
-        raise ValueError("config.json must contain afterfx_com_path.")
     return None
+
+
+def save_config_afterfx_path(path):
+    path = Path(path).resolve()
+    if not path.is_file() or path.name.lower() != "afterfx.com":
+        raise FileNotFoundError("AfterFX.com path not found: " + str(path))
+
+    config = load_config()
+    config["afterfx_com_path"] = str(path)
+    temp_path = CONFIG_PATH.with_name(CONFIG_PATH.name + ".tmp")
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp_path.write_text(
+        json.dumps(config, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temp_path.replace(CONFIG_PATH)
+    return path
 
 
 def afterfx_version_key(path):
@@ -80,9 +102,9 @@ def afterfx_version_key(path):
     return parts if parts else [0]
 
 
-def find_afterfx_com():
+def find_afterfx_com_candidates():
     if not DEFAULT_ADOBE_DIR.exists():
-        return None
+        return []
 
     candidates = []
     for app_dir in DEFAULT_ADOBE_DIR.glob("Adobe After Effects *"):
@@ -90,11 +112,8 @@ def find_afterfx_com():
         if candidate.exists():
             candidates.append(candidate)
 
-    if not candidates:
-        return None
-
     candidates.sort(key=afterfx_version_key, reverse=True)
-    return candidates[0]
+    return candidates
 
 
 def resolve_afterfx_path(cli_afterfx_path):
@@ -115,16 +134,22 @@ def resolve_afterfx_path(cli_afterfx_path):
 
     config_afterfx_path = load_config_afterfx_path()
     if config_afterfx_path:
-        if not config_afterfx_path.exists():
-            raise FileNotFoundError(
-                "config.json afterfx_com_path not found: "
-                + str(config_afterfx_path)
-            )
-        return config_afterfx_path
+        if config_afterfx_path.is_file():
+            return config_afterfx_path
 
-    discovered_path = find_afterfx_com()
-    if discovered_path:
-        return discovered_path
+    discovered_paths = find_afterfx_com_candidates()
+    if len(discovered_paths) == 1:
+        return save_config_afterfx_path(discovered_paths[0])
+    if len(discovered_paths) > 1:
+        choices = "\n".join(
+            str(index) + ". " + str(path)
+            for index, path in enumerate(discovered_paths, start=1)
+        )
+        raise RuntimeError(
+            "Multiple After Effects installations found. Ask the user which "
+            "version to use, then save it with configure_afterfx.py:\n"
+            + choices
+        )
 
     raise FileNotFoundError(
         "AfterFX.com not found. Provide one of:\n"
