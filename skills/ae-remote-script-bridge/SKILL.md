@@ -28,7 +28,7 @@ During real AE work, record newly discovered reusable experience as one new Mark
 
 Before recording, read only `improvements/RULES.md`; do not list, search, or read existing pending entries. Follow its filename convention and entry template. Do not rewrite another entry or promote a candidate into `SKILL.md`, references, task cards, or bridge code without maintainer review. Only inspect the pending entries when the maintainer explicitly requests queue review or absorption.
 
-The optional bridge-local `assets/bridge/config.json` may set `improvement_queue_dir`. When configured, write new entries under its `pending/` subdirectory instead of the default queue. Resolve a relative configured path from the directory containing `config.json`; absolute paths are allowed only as machine-local configuration and must not be written into tracked Skill instructions. The recording rules always come from the bundled `improvements/RULES.md`. If the configured directory is missing, invalid, or not writable, fall back to the default `improvements/pending/` directory beside this `SKILL.md` and tell the user which queue received the entry. Experience logging must not interrupt recovery from an AE error or delay the user's primary task.
+The optional Skill-local `assets/bridge/config.json` may set `improvement_queue_dir`. When configured, write new entries under its `pending/` subdirectory instead of the default queue. Resolve a relative configured path from the directory containing `config.json`; absolute paths are allowed only as machine-local configuration and must not be written into tracked Skill instructions. The recording rules always come from the bundled `improvements/RULES.md`. If the configured directory is missing, invalid, or not writable, fall back to the default `improvements/pending/` directory beside this `SKILL.md` and tell the user which queue received the entry. Experience logging must not interrupt recovery from an AE error or delay the user's primary task.
 
 ## Bridge Setup
 
@@ -41,10 +41,9 @@ logs/
 temp/
 ```
 
-Do not copy the bridge or its configuration into the workspace. Target JSX and
-operation JSON files may live in the workspace and be passed by absolute path.
 The bundled bridge contains all code needed for JSX sending and project
-protection; its core paths use only the Python standard library.
+protection. Pass external target JSX and operation JSON files by absolute path.
+The bridge core uses only the Python standard library.
 
 The bridge uses `AfterFX.com -r`, not `AfterFX.exe -r`.
 
@@ -71,15 +70,15 @@ valid, use it. If no valid path is configured, it searches under
 - If none are found, ask the user for the `AfterFX.com` path and save it with
   the same command.
 
-The Skill-local `config.json` is machine-specific, reused for every workspace,
-and must remain untracked. Preserve it when updating or reinstalling the Skill.
-The configuration command keeps unrelated fields already present in that file.
+The Skill-local `config.json` is machine-specific, reused for every AE task, and
+must remain untracked. Preserve it when updating or reinstalling the Skill. The
+configuration command keeps unrelated fields already present in that file.
 
 `client/send_to_ae.py` resolves `AfterFX.com` in this order:
 
 1. `--afterfx "C:\path\to\AfterFX.com"`
 2. `AFTERFX_COM_PATH`
-3. optional bridge-local `config.json` with `afterfx_com_path`
+3. optional Skill-local `config.json` with `afterfx_com_path`
 4. automatic first-use discovery under `C:\Program Files\Adobe\Adobe After Effects *\Support Files\AfterFX.com`
 
 When first-use discovery finds one installation, the bridge persists it. When
